@@ -1,2 +1,60 @@
-# VolunteerTrac
-Volunteertrac Docker Setup
+# Volunteertrac — volunteer time tracking, self-hosted
+
+A self-contained Docker application for planning events, running attendance, managing members and waivers, and reporting volunteer impact. The whole product ships as a single container: a Vite/React SPA served by nginx — no external services required.
+
+## Quick start
+
+```bash
+docker compose up --build
+```
+
+Open **http://localhost:8080** and pick a demo identity on the sign-in screen (one admin, several volunteers). All data persists in the browser via localStorage; reset it anytime from **Admin → Settings → Demo data**.
+
+Local development without Docker:
+
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # production build to dist/
+```
+
+## What's inside
+
+| Area | Capabilities |
+| --- | --- |
+| **Events** | Public events, private group events (invite by group), weekly/monthly recurring series, capacity tracking, live-event detection |
+| **Attendance** | Per-event ledger, one-tap check-in/check-out with live timers, walk-in check-in via QR code, admin time corrections, per-event CSV export |
+| **Members** | Profiles, groups, admin assistants (role = admin), participation history per member, activate/pause, full CSV export |
+| **Organization** | White-label branding (name, logo upload or preset marks, theme accent), editable liability waiver with e-signature flow, award thresholds, org info |
+| **Member portal** | Upcoming events, one-tap registration with simulated confirmation emails, waiver signing, QR walk-in scanner, personal hours ledger, membership QR card, password reset |
+| **Impact** | Org-wide hours and estimated dollar value, monthly trend chart, medal distribution, volunteer leaderboard with progress to next medal, per-event breakdown |
+
+Medals (Seedling → Trailblazer → Beacon → Lighthouse) unlock automatically as hours accrue; thresholds are configurable in **Settings → Award thresholds**.
+
+## Architecture
+
+```
+┌─────────────────────────────────┐
+│  nginx:1.27-alpine  (port 80)   │
+│  ├─ serves dist/ (SPA + assets) │
+│  └─ SPA fallback for routes     │
+└─────────────────────────────────┘
+          ▲ built by
+┌─────────────────────────────────┐
+│  node:20-alpine (build stage)   │
+│  └─ vite build                  │
+└─────────────────────────────────┘
+```
+
+- **Multi-stage Dockerfile** — dependencies and build artifacts never ship in the runtime image (~50 MB final).
+- **Healthcheck** baked into both the image and `docker-compose.yml`.
+- **State** — this demo persists to `localStorage`, so a single container is fully self-contained. Swap `src/lib/store.tsx` for a REST/Postgres backend without touching the views.
+
+## Useful commands
+
+```bash
+docker compose up -d --build   # run in background
+docker compose logs -f         # follow nginx logs
+docker compose down            # stop and remove
+docker compose build --no-cache  # force a clean rebuild
+```
