@@ -8,9 +8,10 @@ import EventsView from "./views/admin/EventsView";
 import PeopleView from "./views/admin/PeopleView";
 import InsightsView from "./views/admin/InsightsView";
 import SettingsView from "./views/admin/SettingsView";
+import DeployView from "./views/admin/DeployView";
 import Portal from "./views/portal/Portal";
 import { Avatar } from "./components/ui";
-import { IcCal, IcCheck, IcClock, IcDash, IcGear, IcHome, IcInfo, IcLogout, IcMedal, IcMenu, IcUser, IcUsers, IcX, LogoMark } from "./components/icons";
+import { IcCal, IcCheck, IcClock, IcDash, IcGear, IcHome, IcInfo, IcLogout, IcMedal, IcMenu, IcRocket, IcUser, IcUsers, IcX, LogoMark } from "./components/icons";
 
 const ADMIN_NAV = [
   { id: "dashboard", label: "Dashboard", icon: IcDash },
@@ -18,6 +19,7 @@ const ADMIN_NAV = [
   { id: "members", label: "Members", icon: IcUsers },
   { id: "impact", label: "Impact", icon: IcMedal },
   { id: "settings", label: "Settings", icon: IcGear },
+  { id: "deploy", label: "Deploy", icon: IcRocket },
 ];
 const MEMBER_NAV = [
   { id: "home", label: "My home", icon: IcHome },
@@ -73,6 +75,7 @@ function Root() {
       tab === "members" ? <PeopleView /> :
       tab === "impact" ? <InsightsView /> :
       tab === "settings" ? <SettingsView key={db.seededAt} /> :
+      tab === "deploy" ? <DeployView /> :
       <DashboardView go={setTab} />
     ) : (
       <Portal tab={tab} go={setTab} />
