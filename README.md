@@ -50,6 +50,25 @@ Medals (Seedling → Trailblazer → Beacon → Lighthouse) unlock automatically
 - **Healthcheck** baked into both the image and `docker-compose.yml`.
 - **State** — this demo persists to `localStorage`, so a single container is fully self-contained. Swap `src/lib/store.tsx` for a REST/Postgres backend without touching the views.
 
+## Publish to GitHub (oak8989)
+
+```bash
+# 1. Create the repo on GitHub (either)
+gh repo create volunteertrac --public --source=. --remote=origin --push
+# …or create an empty repo at https://github.com/new, then:
+./publish.sh
+```
+
+The repo lands at **https://github.com/oak8989/volunteertrac** and the included
+workflow (`.github/workflows/docker-publish.yml`) automatically builds and pushes
+the image to **ghcr.io/oak8989/volunteertrac:latest** on every push to `main`
+(and version tags). Pull it anywhere with:
+
+```bash
+docker pull ghcr.io/oak8989/volunteertrac:latest
+docker run -p 8080:80 ghcr.io/oak8989/volunteertrac:latest
+```
+
 ## Useful commands
 
 ```bash
