@@ -1,0 +1,20 @@
+# Volunteertrac — self-contained volunteer time tracking
+# Usage:  docker compose up --build   →   http://localhost:8080
+services:
+  volunteertrac:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: volunteertrac:latest
+    container_name: volunteertrac
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      - TZ=${TZ:-UTC}
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

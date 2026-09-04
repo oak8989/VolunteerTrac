@@ -1,0 +1,172 @@
+import { useRef, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useStore } from "../../lib/store";
+import type { OrgSettings } from "../../lib/data";
+import { ACCENTS, downloadText } from "../../lib/data";
+import { Btn, card, Chip, Confirm, Field, Input, PageHead, Textarea, Toggle } from "../../components/ui";
+import { IcCheck, IcDown, IcShield, IcTrash, LogoMark } from "../../components/icons";
+
+export default function SettingsView() {
+  const { db, saveOrg, toast, resetDemo } = useStore();
+  const [form, setForm] = useState<OrgSettings>(() => ({
+    ...db.org,
+    waiver: { ...db.org.waiver },
+    tiers: db.org.tiers.map((t) => ({ ...t })),
+  }));
+  const [confirmReset, setConfirmReset] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const dirty = JSON.stringify(form) !== JSON.stringify(db.org);
+
+  const onFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => setForm((p) => ({ ...p, logoDataUrl: String(r.result) }));
+    r.readAsDataURL(f);
+  };
+
+  const save = () => {
+    saveOrg(form);
+    toast("ok", "Settings saved", "Branding, waivers and award thresholds updated across the app");
+  };
+
+  return (
+    <>
+      <PageHead eyebrow="Emphasize your mission" title="Organization settings" sub="White-label the platform, manage your waiver, tune award thresholds and keep org details current.">
+        <Btn variant="line" onClick={() => downloadText("volunteertrac-data.json", JSON.stringify(db, null, 2), "application/json")}>
+          <IcDown size={15} /> Export data
+        </Btn>
+        <Btn onClick={save} disabled={!dirty}>{dirty ? "Save changes" : "All changes saved"}</Btn>
+      </PageHead>
+
+      <div className="grid grid-cols-12 gap-4">
+        {/* branding */}
+        <section className={`${card} col-span-12 lg:col-span-7 p-5 anim-rise`}>
+          <h2 className="font-display font-bold text-[16px] mb-4">Brand & white-label</h2>
+          <div className="flex items-center gap-4 mb-5">
+            {form.logoDataUrl ? (
+              <img src={form.logoDataUrl} alt="logo" className="w-14 h-14 rounded-[12px] object-cover border border-line" />
+            ) : (
+              <LogoMark variant={form.logoMark} size={56} />
+            )}
+            <div className="space-y-1.5">
+              <div className="flex gap-1.5">
+                {[0, 1, 2, 3].map((i) => (
+                  <button key={i} onClick={() => setForm((p) => ({ ...p, logoMark: i, logoDataUrl: null }))}
+                    className={`p-1 rounded-[10px] border transition cursor-pointer ${!form.logoDataUrl && form.logoMark === i ? "border-[var(--acc)] bg-[color-mix(in_srgb,var(--acc)_10%,white)]" : "border-line hover:border-faint"}`}
+                  >
+                    <LogoMark variant={i} size={30} />
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Btn size="sm" variant="line" onClick={() => fileRef.current?.click()}>Upload logo</Btn>
+                {form.logoDataUrl && <Btn size="sm" variant="ghost" onClick={() => setForm((p) => ({ ...p, logoDataUrl: null }))}>Remove</Btn>}
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Organization name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+            <Field label="EIN"><Input value={form.ein} onChange={(e) => setForm({ ...form, ein: e.target.value })} /></Field>
+            <Field label="Tagline" className="sm:col-span-2"><Input value={form.tagline} onChange={(e) => setForm({ ...form, tagline: e.target.value })} /></Field>
+            <Field label="Mission statement" className="sm:col-span-2"><Textarea value={form.mission} onChange={(e) => setForm({ ...form, mission: e.target.value })} /></Field>
+          </div>
+
+          <div className="mt-5">
+            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-soft mb-2">Theme accent</p>
+            <div className="flex flex-wrap gap-2">
+              {ACCENTS.map((a) => (
+                <button key={a.hex} onClick={() => setForm((p) => ({ ...p, accent: a.hex }))}
+                  className={`flex items-center gap-2 h-9 px-3 rounded-[9px] border text-[12.5px] font-semibold transition cursor-pointer ${form.accent === a.hex ? "border-pine-800 bg-pine-900 text-paper" : "border-linedark bg-white/60 text-ink hover:border-faint"}`}
+                >
+                  <span className="w-4 h-4 rounded-full border border-black/10" style={{ background: a.hex }} />
+                  {a.name}
+                  {form.accent === a.hex && <IcCheck size={13} />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-[10px] border border-dashed border-linedark bg-paper/70 p-4">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-faint mb-2.5">Live preview</p>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <Btn variant="acc" size="sm">Register</Btn>
+              <Btn variant="dark" size="sm">Check out</Btn>
+              <Chip tone="acc">Public</Chip>
+              <Chip tone="live">live</Chip>
+              <span className="font-mono text-[12px] text-soft tnum">128h logged</span>
+            </div>
+          </div>
+        </section>
+
+        <div className="col-span-12 lg:col-span-5 space-y-4">
+          {/* waiver */}
+          <section className={`${card} p-5 anim-rise`} style={{ animationDelay: "80ms" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display font-bold text-[16px] flex items-center gap-2"><IcShield size={17} className="text-pine-700" /> Waiver</h2>
+              <Toggle on={form.waiver.required} onChange={(v) => setForm((p) => ({ ...p, waiver: { ...p.waiver, required: v } }))} label={form.waiver.required ? "Required" : "Optional"} />
+            </div>
+            <div className="space-y-3.5">
+              <Field label="Waiver title"><Input value={form.waiver.title} onChange={(e) => setForm((p) => ({ ...p, waiver: { ...p.waiver, title: e.target.value } }))} /></Field>
+              <Field label="Waiver body" hint="Members must accept this before registering for waiver-gated events.">
+                <Textarea rows={7} value={form.waiver.body} onChange={(e) => setForm((p) => ({ ...p, waiver: { ...p.waiver, body: e.target.value } }))} />
+              </Field>
+            </div>
+          </section>
+
+          {/* awards */}
+          <section className={`${card} p-5 anim-rise`} style={{ animationDelay: "160ms" }}>
+            <h2 className="font-display font-bold text-[16px] mb-1">Award thresholds</h2>
+            <p className="text-[12px] text-soft mb-4">Hours at which each medal unlocks. Existing volunteers re-qualify instantly.</p>
+            <div className="space-y-2.5">
+              {form.tiers.map((t, i) => (
+                <div key={i} className="flex items-center gap-2.5">
+                  <span className="w-3.5 h-3.5 rounded-full border border-black/10 shrink-0" style={{ background: t.color }} />
+                  <Input value={t.name} onChange={(e) => { const tiers = form.tiers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)); setForm({ ...form, tiers }); }} className="flex-1" />
+                  <div className="relative w-24 shrink-0">
+                    <Input type="number" min={1} value={t.hours}
+                      onChange={(e) => { const tiers = form.tiers.map((x, j) => (j === i ? { ...x, hours: Math.max(1, Number(e.target.value)) } : x)); setForm({ ...form, tiers }); }}
+                      className="pr-7 text-right font-mono"
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-mono text-faint">h</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Field label="Volunteer hour value ($)" hint="Used for the estimated community-value figure. Independent Sector's benchmark is ≈ $34.95." className="mt-4">
+              <Input type="number" min={0} step={0.05} value={form.valuePerHour} onChange={(e) => setForm({ ...form, valuePerHour: Number(e.target.value) })} className="font-mono" />
+            </Field>
+          </section>
+
+          {/* org info */}
+          <section className={`${card} p-5 anim-rise`} style={{ animationDelay: "240ms" }}>
+            <h2 className="font-display font-bold text-[16px] mb-4">Organization info</h2>
+            <div className="space-y-3.5">
+              <Field label="Contact email"><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
+              <Field label="Phone"><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+              <Field label="Address"><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field>
+            </div>
+          </section>
+
+          {/* danger zone */}
+          <section className="border border-clay/30 bg-clay/4 rounded-xl p-5 anim-rise" style={{ animationDelay: "320ms" }}>
+            <h2 className="font-display font-bold text-[15px] text-clay mb-1.5">Demo data</h2>
+            <p className="text-[12.5px] text-soft mb-3.5">Restore the original seed — events, members, attendance and settings all reset. A quick way back to a pristine demo for screenshots.</p>
+            <Btn variant="danger" size="sm" onClick={() => setConfirmReset(true)}><IcTrash size={14} /> Reset demo data</Btn>
+          </section>
+        </div>
+      </div>
+
+      <Confirm
+        open={confirmReset}
+        onClose={() => setConfirmReset(false)}
+        onYes={resetDemo}
+        title="Reset all demo data?"
+        body="Every change you've made — events, registrations, attendance edits, branding — will be replaced with fresh seed data."
+        yesLabel="Reset everything"
+      />
+    </>
+  );
+}
