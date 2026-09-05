@@ -205,6 +205,27 @@ export const IcLeaf = mk(
     <path d="M5 20.5C8 14 12 10 17 7.5" />
   </>
 );
+export const IcRocket = mk(
+  <>
+    <path d="M12 15.5c5.5-4.5 7-9.5 7.2-11.7-2.2.2-7.2 1.7-11.7 7.2" />
+    <path d="M7.5 11L4 12.2l3.3 2M13 16.5l-1.2 3.5-2-3.3" />
+    <path d="M7.5 11l5.5 5.5" />
+    <circle cx="14.8" cy="9.2" r="1.5" />
+    <path d="M5.5 18.5c-.8.8-1.2 2-1 3 1-.2 2.2-.2 3-1" />
+  </>
+);
+export const IcCopy = mk(
+  <>
+    <rect x="8.5" y="8.5" width="12" height="12" rx="2" />
+    <path d="M15.5 5.5v-.4A2.1 2.1 0 0013.4 3H5.1A2.1 2.1 0 003 5.1v8.3a2.1 2.1 0 002.1 2.1h.4" />
+  </>
+);
+export const IcTerminal = mk(
+  <>
+    <rect x="3" y="4.5" width="18" height="15" rx="2" />
+    <path d="M7 9.5l3 2.8-3 2.8M12.5 15.5h4.5" />
+  </>
+);
 
 /* Organization logo marks — white-label presets */
 export function LogoMark({ variant, size = 26, fg = "var(--acc)", bg = "transparent" }: { variant: number; size?: number; fg?: string; bg?: string }) {

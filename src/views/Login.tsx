@@ -66,6 +66,10 @@ export default function Login() {
               <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "var(--acc)" }} />
               self-hosted · one command: <span className="text-paper">docker compose up</span>
             </p>
+            <p className="text-[11px] font-mono text-pine-300/80 flex items-center gap-2">
+              <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "var(--acc)" }} />
+              github: <span className="text-paper">oak8989/volunteertrac</span> · image: <span className="text-paper">ghcr.io/oak8989/volunteertrac</span>
+            </p>
           </div>
         </div>
       </aside>
