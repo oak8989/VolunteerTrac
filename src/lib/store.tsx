@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { Attendance, DB, EventItem, Member, OrgSettings } from "./data";
-import { fullName, memberHours, medalInfo, seed, SEED_V, tierFor, uid } from "./data";
+import type { Attendance, DB, EventItem, Member, OrgSettings, Payment } from "./data";
+import { AVATAR_COLORS, fmtMoney, fullName, memberHours, receiptId, seed, SEED_V, tierFor, uid } from "./data";
 
 const KEY = "volunteertrac:db";
 
@@ -25,8 +25,12 @@ interface Ctx {
   updateMember: (id: string, patch: Partial<Member>) => void;
   addEvents: (evts: EventItem[]) => void;
   removeEvent: (id: string) => void;
-  register: (eventId: string, memberId: string) => void;
+  register: (eventId: string, memberId: string, payment?: Payment) => void;
   unregister: (eventId: string, memberId: string) => void;
+  markPaid: (attId: string, amount: number) => void;
+  attemptLogin: (email: string, password: string) => { member?: Member; error?: string };
+  createAccount: (d: { firstName: string; lastName: string; email: string; password: string }) => { member?: Member; error?: string };
+  resetPassword: (email: string) => boolean;
   checkIn: (eventId: string, memberId: string, walkIn?: boolean) => void;
   checkOut: (eventId: string, memberId: string) => void;
   saveTimes: (attId: string, checkIn: string | null, checkOut: string | null) => void;
@@ -144,21 +148,80 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toast("warn", "Event removed", ev?.title);
       },
 
-      register: (eventId, memberId) => {
+      register: (eventId, memberId, payment) => {
         const d0 = dbRef.current;
         const ev = d0.events.find((e) => e.id === eventId);
         const m = d0.members.find((x) => x.id === memberId);
         if (!ev || !m) return;
         if (d0.attendance.some((a) => a.eventId === eventId && a.memberId === memberId)) return;
-        set((d) => ({ ...d, attendance: [...d.attendance, { id: uid(), eventId, memberId, checkIn: null, checkOut: null, walkIn: false, note: "" }] }));
+        set((d) => ({ ...d, attendance: [...d.attendance, { id: uid(), eventId, memberId, checkIn: null, checkOut: null, walkIn: false, note: "", payment: payment || null }] }));
         log("register", `${fullName(m)} registered for ${ev.title}`);
         log("email", `Confirmation email sent to ${m.email} for ${ev.title}`);
-        toast("ok", "Registration confirmed", `A confirmation email was sent to ${m.email} (simulated)`);
+        if (payment) {
+          log("payment", `${fullName(m)} paid ${fmtMoney(payment.amount)} for ${ev.title} (${payment.receipt})`);
+          toast("ok", "Payment received", `${fmtMoney(payment.amount)} · receipt ${payment.receipt} emailed to ${m.email}`);
+        } else {
+          toast("ok", "Registration confirmed", `A confirmation email was sent to ${m.email} (simulated)`);
+        }
       },
 
       unregister: (eventId, memberId) => {
+        const d0 = dbRef.current;
+        const rec = d0.attendance.find((a) => a.eventId === eventId && a.memberId === memberId && !a.checkIn);
+        const ev = d0.events.find((e) => e.id === eventId);
+        const m = d0.members.find((x) => x.id === memberId);
         set((d) => ({ ...d, attendance: d.attendance.filter((a) => !(a.eventId === eventId && a.memberId === memberId && !a.checkIn)) }));
-        toast("info", "Registration cancelled");
+        if (rec?.payment && ev && m) {
+          log("refund", `Refund of ${fmtMoney(rec.payment.amount)} issued to ${fullName(m)} for ${ev.title} (${rec.payment.receipt})`);
+          toast("info", "Registration cancelled", `Refund of ${fmtMoney(rec.payment.amount)} issued to the original card`);
+        } else {
+          toast("info", "Registration cancelled");
+        }
+      },
+
+      markPaid: (attId, amount) => {
+        const d0 = dbRef.current;
+        const rec = d0.attendance.find((a) => a.id === attId);
+        const pay: Payment = { amount, at: new Date().toISOString(), receipt: receiptId(), method: "manual" };
+        set((d) => ({ ...d, attendance: d.attendance.map((a) => (a.id === attId ? { ...a, payment: pay } : a)) }));
+        const m = d0.members.find((x) => x.id === rec?.memberId);
+        const ev = d0.events.find((e) => e.id === rec?.eventId);
+        if (m && ev) log("payment", `${fullName(m)} marked paid for ${ev.title} (${fmtMoney(amount)} · ${pay.receipt})`);
+        toast("ok", "Payment recorded", `${fmtMoney(amount)} · ${pay.receipt}`);
+      },
+
+      attemptLogin: (email, password) => {
+        const m = dbRef.current.members.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
+        if (!m) return { error: "No account matches that email." };
+        if (m.password !== password) return { error: "Incorrect password — try again or reset it below." };
+        if (!m.active) return { error: "This account has been deactivated. Contact your coordinator." };
+        set((d) => ({ ...d, session: m.id }));
+        toast("ok", `Welcome back, ${m.firstName}`, m.role === "admin" ? "Signed in to the admin console" : "Signed in to your member portal");
+        return { member: m };
+      },
+
+      createAccount: ({ firstName, lastName, email, password }) => {
+        const d0 = dbRef.current;
+        if (d0.members.some((x) => x.email.toLowerCase() === email.trim().toLowerCase()))
+          return { error: "An account with that email already exists — sign in instead." };
+        const nm: Member = {
+          id: uid(), firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim(),
+          phone: "", title: "New Volunteer", role: "member", groups: [], active: true,
+          joinedAt: new Date().toISOString(), color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
+          waiverSignedAt: null, password,
+        };
+        set((d) => ({ ...d, members: [...d.members, nm], session: nm.id }));
+        log("email", `Welcome email sent to ${nm.email} — account created from the public site`);
+        toast("ok", `Welcome aboard, ${nm.firstName}`, "Your volunteer account is ready");
+        return { member: nm };
+      },
+
+      resetPassword: (email) => {
+        const m = dbRef.current.members.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
+        if (!m) return false;
+        log("email", `Password reset link sent to ${m.email} (expires in 30 min)`);
+        toast("ok", "Reset link sent", `Check ${m.email} — the link expires in 30 minutes (simulated)`);
+        return true;
       },
 
       checkIn: (eventId, memberId, walkIn = false) => {
@@ -172,7 +235,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (existing.checkIn && !existing.checkOut) return;
           set((d) => ({ ...d, attendance: d.attendance.map((a) => (a.id === existing.id ? { ...a, checkIn: now, walkIn: a.walkIn || walkIn } : a)) }));
         } else {
-          set((d) => ({ ...d, attendance: [...d.attendance, { id: uid(), eventId, memberId, checkIn: now, checkOut: null, walkIn, note: "" }] }));
+          set((d) => ({ ...d, attendance: [...d.attendance, { id: uid(), eventId, memberId, checkIn: now, checkOut: null, walkIn, note: "", payment: null }] }));
         }
         log(walkIn ? "walkin" : "checkin", `${fullName(m)} ${walkIn ? "scanned the walk-in QR at" : "checked in to"} ${ev.title}`);
         toast("ok", `${m.firstName} checked in`, `${ev.title}${walkIn ? " · walk-in QR" : ""}`);

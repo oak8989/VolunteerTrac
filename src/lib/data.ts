@@ -29,7 +29,16 @@ export interface EventItem {
   type: "public" | "private";
   invitees: string[];
   requireWaiver: boolean;
+  /** per-person fee in USD; 0 = free event */
+  fee: number;
   createdAt: string;
+}
+
+export interface Payment {
+  amount: number;
+  at: string;
+  receipt: string;
+  method: "card" | "manual";
 }
 
 export interface Attendance {
@@ -40,12 +49,13 @@ export interface Attendance {
   checkOut: string | null;
   walkIn: boolean;
   note: string;
+  payment: Payment | null;
 }
 
 export interface Activity {
   id: string;
   at: string;
-  kind: "email" | "checkin" | "register" | "medal" | "edit" | "system" | "walkin";
+  kind: "email" | "checkin" | "register" | "medal" | "edit" | "system" | "walkin" | "payment" | "refund";
   text: string;
 }
 
@@ -69,6 +79,7 @@ export interface OrgSettings {
   waiver: { title: string; body: string; required: boolean };
   tiers: Tier[];
   valuePerHour: number;
+  payments: { enabled: boolean; accountLabel: string };
 }
 
 export interface DB {
@@ -83,7 +94,7 @@ export interface DB {
 }
 
 // ---------- constants ----------
-export const SEED_V = 4;
+export const SEED_V = 5;
 export const GROUPS = ["Trail Crew", "Food Pantry", "Youth Mentors", "Events Team"];
 export const ACCENTS = [
   { name: "Marigold", hex: "#E8A61A" },
@@ -183,6 +194,22 @@ export const eventState = (e: EventItem): "past" | "live" | "upcoming" => {
 
 export const totalHours = (db: DB) => Math.round(db.attendance.reduce((s, a) => s + hoursOf(a), 0) * 10) / 10;
 
+// ---------- payments ----------
+export const fmtMoney = (n: number) =>
+  n.toLocaleString([], { style: "currency", currency: "USD", minimumFractionDigits: n % 1 === 0 ? 0 : 2 });
+
+export const receiptId = () =>
+  `RCPT-${Math.random().toString(36).slice(2, 6).toUpperCase()}${Math.floor(10 + Math.random() * 89)}`;
+
+export const rcptFor = (eventId: string, memberId: string) =>
+  `RCPT-${(eventId + memberId).replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase()}`;
+
+export const eventRevenue = (db: DB, eventId: string) =>
+  Math.round(recordsFor(db, eventId).reduce((s, a) => s + (a.payment?.amount || 0), 0) * 100) / 100;
+
+export const totalRevenue = (db: DB) =>
+  Math.round(db.attendance.reduce((s, a) => s + (a.payment?.amount || 0), 0) * 100) / 100;
+
 export function monthSeries(db: DB, n: number) {
   const out: { label: string; value: number }[] = [];
   const now = new Date();
@@ -265,10 +292,11 @@ export function seed(): DB {
 
   const E = (
     id: string, seriesId: string | null, title: string, description: string, location: string,
-    start: Date, end: Date, capacity: number, type: "public" | "private", invitees: string[], requireWaiver: boolean
+    start: Date, end: Date, capacity: number, type: "public" | "private", invitees: string[], requireWaiver: boolean,
+    fee = 0
   ): EventItem => ({
     id, seriesId, title, description, location, start: iso(start), end: iso(end),
-    capacity, type, invitees, requireWaiver, createdAt: iso(at(-120, 9)),
+    capacity, type, invitees, requireWaiver, fee, createdAt: iso(at(-120, 9)),
   });
 
   const events: EventItem[] = [
@@ -279,6 +307,7 @@ export function seed(): DB {
     E("e-g1", null, "Community Garden Build", "Raise four new cedar beds with the parks department.", "8th St Community Garden", at(-42, 9), at(-42, 14), 25, "public", [], true),
     E("e-p2", "s-pantry", "Pantry Restock Night", "Unload deliveries, rotate stock, prep weekend family boxes.", "Food Pantry Warehouse", at(-35, 17, 30), at(-35, 20, 30), 12, "private", pantry, false),
     E("e-m1", null, "Mentor Orientation", "Training for new youth mentors — background check Q&A included.", "Alliance Hall, Room B", at(-28, 18), at(-28, 20), 14, "private", mentors, true),
+    E("e-saw", null, "Chainsaw Safety Certification", "Certification for trail-crew chainsaw operators. Fee covers PPE materials and the cert card.", "Miller Ridge Trailhead", at(-30, 9), at(-30, 15), 12, "public", [], true, 35),
     E("e-t2", "s-trail", "Trail Maintenance Crew", "Water-bar installation on the lower descent.", "Miller Ridge Trailhead", at(-21, 8), at(-21, 12), 10, "private", trailCrew, false),
     E("e-c2", null, "River Cleanup Day", "Second-bank sweep plus invasive garlic-mustard pull.", "Riverbend Park, East Gate", at(-14, 9), at(-14, 13), 30, "public", [], true),
     E("e-p3", "s-pantry", "Pantry Restock Night", "Unload deliveries, rotate stock, prep weekend family boxes.", "Food Pantry Warehouse", at(-7, 17, 30), at(-7, 20, 30), 12, "private", pantry, false),
@@ -286,6 +315,7 @@ export function seed(): DB {
     E("e-t3", "s-trail", "Trail Maintenance Crew", "Signage refresh and tread work past the falls overlook.", "Miller Ridge Trailhead", at(2, 8), at(2, 12), 10, "private", trailCrew, false),
     E("e-p4", "s-pantry", "Pantry Restock Night", "Unload deliveries, rotate stock, prep weekend family boxes.", "Food Pantry Warehouse", at(5, 17, 30), at(5, 20, 30), 12, "private", pantry, false),
     E("e-m2", null, "Mentor Circle: Resume Workshop", "Help teens polish resumes and practice interviews.", "Alliance Hall, Room B", at(7, 18), at(7, 20), 14, "private", mentors, false),
+    E("e-wfa", null, "Wilderness First Aid Certification", "WFA certification for trail leads and event captains. Fee covers the course manual and certification card.", "Alliance Hall, Room B", at(6, 9), at(6, 15), 16, "public", [], true, 45),
     E("e-t4", "s-trail", "Trail Maintenance Crew", "Bridge plank replacement — carpenters especially welcome.", "Miller Ridge Trailhead", at(9, 8), at(9, 12), 10, "private", trailCrew, false),
     E("e-f1", null, "Summer Fundraiser Setup", "Stage, tables, lighting and signage for the summer gala.", "Fairgrounds Pavilion", at(12, 16), at(12, 20), 12, "public", [], true),
   ];
@@ -294,7 +324,7 @@ export function seed(): DB {
   const inOff = [4, 9, 2, 12, 6, 15];
   const outOff = [6, 3, 10, 5, 8, 4];
   const attendance: Attendance[] = [];
-  const A = (eventId: string, memberId: string, walkIn = false) => {
+  const A = (eventId: string, memberId: string, walkIn = false, paid = 0) => {
     const ev = events.find((e) => e.id === eventId)!;
     attendance.push({
       id: `a-${++ai}`,
@@ -302,6 +332,7 @@ export function seed(): DB {
       checkIn: iso(new Date(new Date(ev.start).getTime() + inOff[ai % 6] * 60000)),
       checkOut: iso(new Date(new Date(ev.end).getTime() - outOff[ai % 6] * 60000)),
       walkIn, note: "",
+      payment: paid > 0 ? { amount: paid, at: iso(new Date(new Date(ev.start).getTime() - 3 * 86400000)), receipt: rcptFor(eventId, memberId), method: "card" } : null,
     });
   };
   // history
@@ -313,22 +344,28 @@ export function seed(): DB {
   ["m-priya", "m-elena"].forEach((m) => A("e-p2", m, m === "m-elena"));
   ["m-jordan", "m-aisha"].forEach((m) => A("e-m1", m));
   ["m-marcus", "m-elena"].forEach((m) => A("e-t2", m));
+  ["m-marcus", "m-elena"].forEach((m) => A("e-saw", m, false, 35));
   ["m-marcus", "m-priya", "m-noah"].forEach((m) => A("e-c2", m));
   ["m-priya", "m-elena", "m-sam"].forEach((m) => A("e-p3", m));
   // live lunch: two checked-in, rest registered
-  attendance.push({ id: `a-${++ai}`, eventId: "e-lunch", memberId: "m-marcus", checkIn: iso(new Date(now.getTime() - 40 * 60000)), checkOut: null, walkIn: false, note: "" });
-  attendance.push({ id: `a-${++ai}`, eventId: "e-lunch", memberId: "m-priya", checkIn: iso(new Date(now.getTime() - 31 * 60000)), checkOut: null, walkIn: true, note: "" });
+  attendance.push({ id: `a-${++ai}`, eventId: "e-lunch", memberId: "m-marcus", checkIn: iso(new Date(now.getTime() - 40 * 60000)), checkOut: null, walkIn: false, note: "", payment: null });
+  attendance.push({ id: `a-${++ai}`, eventId: "e-lunch", memberId: "m-priya", checkIn: iso(new Date(now.getTime() - 31 * 60000)), checkOut: null, walkIn: true, note: "", payment: null });
   ["m-jordan", "m-aisha", "m-sam", "m-grace"].forEach((m) =>
-    attendance.push({ id: `a-${++ai}`, eventId: "e-lunch", memberId: m, checkIn: null, checkOut: null, walkIn: false, note: "" })
+    attendance.push({ id: `a-${++ai}`, eventId: "e-lunch", memberId: m, checkIn: null, checkOut: null, walkIn: false, note: "", payment: null })
   );
   // upcoming registrations
-  ["m-marcus", "m-elena"].forEach((m) => attendance.push({ id: `a-${++ai}`, eventId: "e-t3", memberId: m, checkIn: null, checkOut: null, walkIn: false, note: "" }));
-  attendance.push({ id: `a-${++ai}`, eventId: "e-p4", memberId: "m-priya", checkIn: null, checkOut: null, walkIn: false, note: "" });
-  ["m-jordan", "m-aisha"].forEach((m) => attendance.push({ id: `a-${++ai}`, eventId: "e-m2", memberId: m, checkIn: null, checkOut: null, walkIn: false, note: "" }));
-  attendance.push({ id: `a-${++ai}`, eventId: "e-t4", memberId: "m-marcus", checkIn: null, checkOut: null, walkIn: false, note: "" });
+  ["m-marcus", "m-elena"].forEach((m) => attendance.push({ id: `a-${++ai}`, eventId: "e-t3", memberId: m, checkIn: null, checkOut: null, walkIn: false, note: "", payment: null }));
+  attendance.push({ id: `a-${++ai}`, eventId: "e-p4", memberId: "m-priya", checkIn: null, checkOut: null, walkIn: false, note: "", payment: null });
+  ["m-jordan", "m-aisha"].forEach((m) => attendance.push({ id: `a-${++ai}`, eventId: "e-m2", memberId: m, checkIn: null, checkOut: null, walkIn: false, note: "", payment: null }));
+  attendance.push({ id: `a-${++ai}`, eventId: "e-t4", memberId: "m-marcus", checkIn: null, checkOut: null, walkIn: false, note: "", payment: null });
   ["m-priya", "m-jordan", "m-sam", "m-grace", "m-elena", "m-marcus", "m-aisha"].forEach((m) =>
-    attendance.push({ id: `a-${++ai}`, eventId: "e-f1", memberId: m, checkIn: null, checkOut: null, walkIn: false, note: "" })
+    attendance.push({ id: `a-${++ai}`, eventId: "e-f1", memberId: m, checkIn: null, checkOut: null, walkIn: false, note: "", payment: null })
   );
+  // paid registration: WFA certification, fee settled at signup
+  attendance.push({
+    id: `a-${++ai}`, eventId: "e-wfa", memberId: "m-marcus", checkIn: null, checkOut: null, walkIn: false, note: "",
+    payment: { amount: 45, at: iso(at(-2, 14)), receipt: rcptFor("e-wfa", "m-marcus"), method: "card" },
+  });
 
   const t = (minsAgo: number) => iso(new Date(now.getTime() - minsAgo * 60000));
   const activity: Activity[] = [
@@ -339,6 +376,8 @@ export function seed(): DB {
     { id: uid(), at: t(60 * 26), kind: "medal", text: "Priya Raman unlocked the Trailblazer medal (15+ hours)" },
     { id: uid(), at: t(60 * 49), kind: "edit", text: "Dana Whitfield corrected check-out time for Sam Kowalski at Pantry Restock Night" },
     { id: uid(), at: t(60 * 75), kind: "system", text: "Weekly recurrence generated 3 Trail Maintenance Crew dates" },
+    { id: uid(), at: t(60 * 30), kind: "payment", text: `Marcus Bell paid $45.00 for Wilderness First Aid Certification (${rcptFor("e-wfa", "m-marcus")})` },
+    { id: uid(), at: t(60 * 24 * 3), kind: "payment", text: `Elena Vasquez paid $35.00 for Chainsaw Safety Certification (${rcptFor("e-saw", "m-elena")})` },
   ];
 
   const org: OrgSettings = {
@@ -364,6 +403,7 @@ export function seed(): DB {
       { name: "Lighthouse", hours: 50, color: TIER_COLORS[3] },
     ],
     valuePerHour: 34.95,
+    payments: { enabled: true, accountLabel: "Visa ending 4421" },
   };
 
   return { v: SEED_V, seededAt: iso(now), org, members, events, attendance, activity, session: null };

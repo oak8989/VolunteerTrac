@@ -41,6 +41,8 @@ Optional config lives in `.env.example` (just `PORT` and `TZ` — both have sens
 | **Organization** | White-label branding (name, logo upload or preset marks, theme accent), editable liability waiver with e-signature flow, award thresholds, org info |
 | **Member portal** | Upcoming events, one-tap registration with simulated confirmation emails, waiver signing, QR walk-in scanner, personal hours ledger, membership QR card, password reset |
 | **Impact** | Org-wide hours and estimated dollar value, monthly trend chart, medal distribution, volunteer leaderboard with progress to next medal, per-event breakdown |
+| **Payments** | Per-person event fees, simulated card checkout with emailed receipts, admin "mark paid", automatic refunds on cancellation, revenue reporting and CSV columns |
+| **Public site** | White-labeled landing page with a live front-desk board, public event calendar with registration, and the sign-in / create-account / password-reset screen |
 
 Medals (Seedling → Trailblazer → Beacon → Lighthouse) unlock automatically as hours accrue; thresholds are configurable in **Settings → Award thresholds**.
 

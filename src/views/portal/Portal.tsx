@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useStore } from "../../lib/store";
 import type { EventItem } from "../../lib/data";
-import { eventState, fmtDay, fmtDayLong, fmtTime, fullName, hoursOf, memberEvents, memberHours, medalInfo, recordsFor, relTime, tierFor } from "../../lib/data";
+import type { Payment } from "../../lib/data";
+import { eventState, fmtDay, fmtDayLong, fmtMoney, fmtTime, fullName, hoursOf, memberEvents, memberHours, medalInfo, recordsFor, relTime, tierFor } from "../../lib/data";
 import { Avatar, Bar, Btn, card, Chip, Empty, Field, fmtH, Input, LiveDot, Modal, PageHead, Ring, Rosette } from "../../components/ui";
-import { IcCal, IcCheck, IcClock, IcIn, IcLock, IcMedal, IcOut, IcQr, IcScan, IcShield, IcSpark } from "../../components/icons";
+import { IcCal, IcCard, IcCheck, IcClock, IcIn, IcLock, IcMedal, IcOut, IcQr, IcScan, IcShield, IcSpark } from "../../components/icons";
 import { LogoMark } from "../../components/icons";
+import PaymentModal from "../../components/Payment";
 
 export default function Portal({ tab, go }: { tab: string; go: (t: string) => void }) {
   const { me } = useStore();
@@ -325,6 +327,8 @@ function EventsTab() {
   const [scanEv, setScanEv] = useState<EventItem | null>(null);
   const [waiverEv, setWaiverEv] = useState<EventItem | null>(null);
   const [viewWaiver, setViewWaiver] = useState(false);
+  const [payEv, setPayEv] = useState<EventItem | null>(null);
+  const payRef = useRef<Payment | null>(null);
   useNow(false);
   const me_ = me!;
 
@@ -335,6 +339,7 @@ function EventsTab() {
   const tryRegister = (e: EventItem) => {
     const needsWaiver = (e.requireWaiver || db.org.waiver.required) && !me_.waiverSignedAt;
     if (needsWaiver) return setWaiverEv(e);
+    if (e.fee > 0 && db.org.payments.enabled) return setPayEv(e);
     register(e.id, me_.id);
   };
 
@@ -363,6 +368,7 @@ function EventsTab() {
                     {live && <Chip tone="live"><LiveDot /> live</Chip>}
                     {e.type === "private" && <Chip tone="ink">group invite</Chip>}
                     {(e.requireWaiver || db.org.waiver.required) && <Chip tone="line"><IcShield size={10} /> waiver</Chip>}
+                    {e.fee > 0 && <Chip tone="gold"><IcCard size={10} /> {fmtMoney(e.fee)} / person</Chip>}
                   </div>
                   <p className="font-mono text-[12px] text-soft mt-1">{fmtTime(e.start)}–{fmtTime(e.end)} · {e.location}</p>
                   <div className="flex items-center gap-2.5 mt-2 max-w-[300px]">
@@ -390,10 +396,9 @@ function EventsTab() {
                   ) : live ? (
                     <Btn variant="dark" onClick={() => setScanEv(e)}><IcScan size={14} /> Scan walk-in QR</Btn>
                   ) : (
-                    <Btn onClick={() => tryRegister(e)} disabled={full} title={needsWaiver ? "You'll be asked to sign the waiver first" : undefined}>
-                      {full ? "Event full" : needsWaiver ? "Sign waiver & register" : "Register"}
-                    </Btn>
-                  )}
+                      <Btn onClick={() => tryRegister(e)} disabled={full} title={needsWaiver ? "You'll be asked to sign the waiver first" : undefined}>
+                      {full ? "Event full" : needsWaiver ? "Sign waiver & register" : e.fee > 0 && db.org.payments.enabled ? `Pay ${fmtMoney(e.fee)} & register` : "Register"}
+                    </Btn>                  )}
                 </div>
               </div>
             );
@@ -408,10 +413,25 @@ function EventsTab() {
         onSign={() => {
           if (!waiverEv) return;
           signWaiver(me_.id);
-          register(waiverEv.id, me_.id);
+          if (waiverEv.fee > 0 && db.org.payments.enabled) setPayEv(waiverEv);
+          else register(waiverEv.id, me_.id);
         }}
       />
       <WaiverModal open={viewWaiver} onClose={() => setViewWaiver(false)} viewOnly />
+      {payEv && (
+        <PaymentModal
+          ev={payEv}
+          email={me_.email}
+          onClose={() => {
+            if (payRef.current) {
+              register(payEv.id, me_.id, payRef.current);
+              payRef.current = null;
+            }
+            setPayEv(null);
+          }}
+          onPaid={(p) => { payRef.current = p; }}
+        />
+      )}
     </>
   );
 }
@@ -451,7 +471,8 @@ function HistoryTab() {
                   <tr key={a.id} className="border-b border-line last:border-0 hover:bg-pine-900/3 transition-colors">
                     <td className="px-4 py-3">
                       <span className="font-semibold block">{e!.title}</span>
-                      {a.walkIn && <span className="text-[10px] font-mono uppercase tracking-wide text-pine-700">walk-in · QR</span>}
+                      {a.walkIn && <span className="block text-[10px] font-mono uppercase tracking-wide text-pine-700">walk-in · QR</span>}
+                      {a.payment && <span className="block text-[10px] font-mono text-[#8a6410]">paid {fmtMoney(a.payment.amount)} · {a.payment.receipt}</span>}
                     </td>
                     <td className="px-3 py-3 font-mono text-[12px] text-soft">{fmtDay(e!.start)}</td>
                     <td className="px-3 py-3 font-mono text-[12px] text-soft tnum">{a.checkIn ? fmtTime(a.checkIn) : "—"}</td>
