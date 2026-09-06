@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Attendance, DB, EmailMsg, EventItem, Member, OrgSettings, Payment } from "./data";
-import { AVATAR_COLORS, fmtMoney, fullName, memberHours, receiptId, seed, SEED_V, tierFor, uid } from "./data";
+import { AVATAR_COLORS, fmtMoney, fullName, hoursOf, memberHours, receiptId, seed, SEED_V, tierFor, uid } from "./data";
 import { appConfig } from "./config";
 
 const KEY = "volunteertrac:db";
@@ -38,6 +38,10 @@ interface Ctx {
   removeAttendance: (attId: string) => void;
   signWaiver: (memberId: string) => void;
   testEmail: () => void;
+  retryEmail: (id: string) => void;
+  /** Deletes the member and every attendance record, registration and payment
+   *  tied to them. `self` allows closing your own account from the portal. */
+  deleteMember: (id: string, self?: boolean) => void;
 }
 
 const StoreCtx = createContext<Ctx | null>(null);
@@ -84,12 +88,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setDb((d) => ({ ...d, activity: [{ id: uid(), at: new Date().toISOString(), kind, text }, ...d.activity].slice(0, 80) }));
   }, []);
 
-  // Outbox: delivered when an SMTP host is configured, queued otherwise.
-  const mail = useCallback((to: string, subject: string) => {
-    const enabled = dbRef.current.org.smtp.enabled;
-    const msg: EmailMsg = { id: uid(), to, subject, at: new Date().toISOString(), status: enabled ? "delivered" : "queued" };
-    setDb((d) => ({ ...d, emails: [msg, ...d.emails].slice(0, 60) }));
+  // Outbox + delivery. Messages are queued instantly (instant UI feedback);
+  // when SMTP is enabled we hand them to the mailer relay at /api/mail and
+  // settle the status to delivered / failed based on the real result.
+  const deliverViaRelay = useCallback(async (id: string, to: string, subject: string): Promise<"delivered" | "failed" | "unreachable"> => {
+    const s = dbRef.current.org.smtp;
+    try {
+      const ctrl = new AbortController();
+      const t = window.setTimeout(() => ctrl.abort(), 2500);
+      const res = await fetch("/api/mail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to,
+          subject,
+          text: `${subject}\n\nYou're receiving this because of your volunteer activity with ${dbRef.current.org.name}.`,
+          smtp: { host: s.host, port: s.port, user: s.user, pass: s.pass, from: s.from },
+        }),
+        signal: ctrl.signal,
+      });
+      window.clearTimeout(t);
+      const status = res.ok ? "delivered" : "failed";
+      setDb((d) => ({ ...d, emails: d.emails.map((m) => (m.id === id ? { ...m, status } : m)) }));
+      return status;
+    } catch {
+      return "unreachable"; // stays queued — retried next send / manual retry
+    }
   }, []);
+
+  const mail = useCallback((to: string, subject: string) => {
+    const msg: EmailMsg = { id: uid(), to, subject, at: new Date().toISOString(), status: "queued" };
+    setDb((d) => ({ ...d, emails: [msg, ...d.emails].slice(0, 60) }));
+    if (dbRef.current.org.smtp.enabled) void deliverViaRelay(msg.id, to, subject);
+  }, [deliverViaRelay]);
+
+  const retryEmail = useCallback((id: string) => {
+    const m = dbRef.current.emails.find((x) => x.id === id);
+    if (!m) return;
+    if (!dbRef.current.org.smtp.enabled) {
+      toast("info", "Still queued", "Enable an SMTP host in Settings → Email server first");
+      return;
+    }
+    void deliverViaRelay(id, m.to, m.subject).then((r) => {
+      if (r === "delivered") toast("ok", "Email delivered", `to ${m.to}`);
+      else if (r === "failed") toast("warn", "SMTP rejected it", "Check host, port and credentials in Email settings");
+      else toast("warn", "Relay unreachable", "Run the stack with docker compose so the mailer sidecar is up");
+    });
+  }, [deliverViaRelay, toast]);
 
   // fires a medal toast if the update crosses a tier upward for memberId
   const medalCheck = useCallback(
@@ -295,19 +340,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toast("ok", "Waiver signed", "Stored on the member profile");
       },
 
+      deleteMember: (id, self = false) => {
+        const d0 = dbRef.current;
+        const m = d0.members.find((x) => x.id === id);
+        if (!m) return;
+
+        // Safeguard: can't delete the account you're currently signed in as
+        // (unless this is an explicit self-closure from the portal).
+        if (!self && id === d0.session) {
+          toast("warn", "Signed in as this account", "Sign out (or use the portal's “Delete my account”) before removing it.");
+          return;
+        }
+        // Safeguard: never delete the last remaining admin.
+        if (m.role === "admin") {
+          const admins = d0.members.filter((x) => x.role === "admin" && x.active);
+          if (admins.length <= 1) {
+            toast("warn", "Can't remove the last admin", "Promote another member to admin first.");
+            return;
+          }
+        }
+
+        // Cascade: every attendance record, registration and payment for this member.
+        const recs = d0.attendance.filter((a) => a.memberId === id);
+        const hrs = Math.round(recs.reduce((s, a) => s + hoursOf(a), 0) * 10) / 10;
+        const paid = Math.round(recs.reduce((s, a) => s + (a.payment?.amount || 0), 0) * 100) / 100;
+        const hrsLabel = `${hrs % 1 === 0 ? hrs : hrs.toFixed(1)}h`;
+
+        set((d) => ({
+          ...d,
+          members: d.members.filter((x) => x.id !== id),
+          attendance: d.attendance.filter((a) => a.memberId !== id),
+          events: d.events.map((e) => (e.invitees.includes(id) ? { ...e, invitees: e.invitees.filter((v) => v !== id) } : e)),
+          session: d.session === id ? null : d.session,
+        }));
+
+        log("system", `${self ? "Closed own account" : `Deleted ${fullName(m)}`} — removed ${recs.length} attendance record${recs.length === 1 ? "" : "s"} (${hrsLabel}${paid > 0 ? `, ${fmtMoney(paid)} in fees` : ""})`);
+        toast("ok", `${fullName(m)} deleted`, `Removed their account plus ${recs.length} attendance record${recs.length === 1 ? "" : "s"} and ${hrsLabel} of history.`);
+      },
+
       testEmail: () => {
         const d0 = dbRef.current;
         const to = d0.org.smtp.from || appConfig.admin.email;
-        mail(to, "Volunteertrac test message — your mail settings work");
+        const subject = "Volunteertrac test message — your mail settings work";
+        const msg: EmailMsg = { id: uid(), to, subject, at: new Date().toISOString(), status: "queued" };
+        set((d) => ({ ...d, emails: [msg, ...d.emails].slice(0, 60) }));
         log("email", `Test message sent to ${to} from the Email settings panel`);
-        toast(
-          "ok",
-          "Test email sent",
-          d0.org.smtp.enabled ? `via ${d0.org.smtp.host}:${d0.org.smtp.port}` : "queued in the outbox — set an SMTP host to deliver for real"
-        );
+        if (!d0.org.smtp.enabled) {
+          toast("info", "Queued in outbox", "No SMTP host set — run the Docker stack and configure Email server to deliver for real");
+          return;
+        }
+        void deliverViaRelay(msg.id, to, subject).then((r) => {
+          if (r === "delivered") toast("ok", "Test email delivered", `via ${d0.org.smtp.host}:${d0.org.smtp.port} — check ${to}`);
+          else if (r === "failed") toast("warn", "SMTP rejected the test", "Double-check host, port, username and password");
+          else toast("warn", "Mailer relay unreachable", "Run the full stack with docker compose so the mailer sidecar is up");
+        });
       },
+
+      retryEmail,
     };
-  }, [db, toasts, toast, dismiss, log, medalCheck, mail]);
+  }, [db, toasts, toast, dismiss, log, medalCheck, deliverViaRelay, retryEmail]);
 
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
 }

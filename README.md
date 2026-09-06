@@ -36,7 +36,7 @@ Optional config lives in `.env.example`. Everything has a working default; the i
 | `PORT` / `TZ` | Host port and container timezone |
 | `ADMIN_NAME` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` | The admin user provisioned at first boot — used to sign in, prefilled on the landing page |
 | `ORG_NAME` | White-labels the organization name across the app |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_FROM` | Email server; leave `SMTP_HOST` empty to queue mail in the outbox |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | Email server; leave `SMTP_HOST` empty to queue mail in the outbox |
 
 Provisioning happens at container boot (`docker/entrypoint.sh` renders `ADMIN_*` / `SMTP_*` into the SPA's runtime config), so the same image serves any org. Data persists in the browser and round-trips through validated JSON backups (**Admin → Deploy → Persistent storage**); copy-pasteable deployment recipes live in **Admin → Deploy**.
 
@@ -48,7 +48,8 @@ Provisioning happens at container boot (`docker/entrypoint.sh` renders `ADMIN_*`
 | **Attendance** | Per-event ledger, one-tap check-in/check-out with live timers, walk-in check-in via QR code, admin time corrections, per-event CSV export |
 | **Members** | Profiles, groups, admin assistants (role = admin), participation history per member, activate/pause, full CSV export |
 | **Organization** | White-label branding (name, logo upload or preset marks, theme accent), editable liability waiver with e-signature flow, award thresholds, org info |
-| **Member portal** | Upcoming events, one-tap registration with simulated confirmation emails, waiver signing, QR walk-in scanner, personal hours ledger, membership QR card, password reset |
+| **Member portal** | Upcoming events, one-tap registration with confirmation emails, waiver signing, QR walk-in scanner, personal hours ledger, membership QR card, password reset |
+| **Email** | Real SMTP delivery via the `mailer` sidecar (Settings → Email server): host/port/user/pass/from, live relay-health indicator, test send, and an outbox that tracks queued / delivered / failed with retry |
 | **Impact** | Org-wide hours and estimated dollar value, monthly trend chart, medal distribution, volunteer leaderboard with progress to next medal, per-event breakdown |
 | **Payments** | Per-person event fees, simulated card checkout with emailed receipts, admin "mark paid", automatic refunds on cancellation, revenue reporting and CSV columns |
 | **Public site** | White-labeled landing page with a live front-desk board, public event calendar with registration, and the sign-in / create-account / password-reset screen |
@@ -58,21 +59,26 @@ Medals (Seedling → Trailblazer → Beacon → Lighthouse) unlock automatically
 ## Architecture
 
 ```
-┌─────────────────────────────────┐
-│  nginx:1.27-alpine  (port 80)   │
-│  ├─ serves dist/ (SPA + assets) │
-│  └─ SPA fallback for routes     │
-└─────────────────────────────────┘
-          ▲ built by
-┌─────────────────────────────────┐
-│  node:20-alpine (build stage)   │
-│  └─ vite build                  │
-└─────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│  nginx:1.27-alpine  (port 80, only exposed)   │
+│  ├─ serves dist/ (SPA + assets)               │
+│  ├─ /api/mail/*  ──► mailer:8025  (internal)  │
+│  └─ SPA fallback for routes                   │
+└───────────────────────────────────────────────┘
+          ▲ built by            │ sends via
+┌─────────────────────┐  ┌───────────────────────┐
+│ node:20 (build)     │  │ mailer: node:20        │
+│ └─ vite build       │  │ └─ nodemailer → SMTP   │
+└─────────────────────┘  └───────────────────────┘
+                         ┌───────────────────────┐
+                         │ redis:7  (cache tier)  │
+                         └───────────────────────┘
 ```
 
 - **Multi-stage Dockerfile** — dependencies and build artifacts never ship in the runtime image (~50 MB final).
-- **Healthcheck** baked into both the image and `docker-compose.yml`.
-- **State** — the ledger persists to `localStorage` and round-trips through JSON backups, so a single container is fully self-contained. Swap `src/lib/store.tsx` for a REST/Postgres backend without touching the views.
+- **Healthcheck** baked into the image and every compose service.
+- **Email that actually sends** — the SPA posts to `/api/mail/*`, which nginx proxies to the internal `mailer` sidecar (`mail/server.js`, nodemailer). It honours `SMTP_*` env vars *and* per-request overrides from **Settings → Email server**, so credentials work whether set in compose or in the UI. Messages are queued instantly in the outbox, then settle to *delivered* or *failed* based on the real SMTP result; failed/queued rows have a Retry button. If no host is configured or the relay is down, everything stays queued and nothing is lost.
+- **State** — the ledger persists to `localStorage` and round-trips through JSON backups, so the stack is fully self-contained. Swap `src/lib/store.tsx` for a REST/Postgres backend without touching the views.
 
 ## Publish to GitHub (oak8989)
 

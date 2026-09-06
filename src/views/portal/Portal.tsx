@@ -4,8 +4,8 @@ import { useStore } from "../../lib/store";
 import type { EventItem } from "../../lib/data";
 import type { Payment } from "../../lib/data";
 import { eventState, fmtDay, fmtDayLong, fmtMoney, fmtTime, fullName, hoursOf, memberEvents, memberHours, medalInfo, recordsFor, relTime, tierFor } from "../../lib/data";
-import { Avatar, Bar, Btn, card, Chip, Empty, Field, fmtH, Input, LiveDot, Modal, PageHead, Ring, Rosette } from "../../components/ui";
-import { IcCal, IcCard, IcCheck, IcClock, IcIn, IcLock, IcMedal, IcOut, IcQr, IcScan, IcShield, IcSpark } from "../../components/icons";
+import { Avatar, Bar, Btn, card, Chip, Confirm, Empty, Field, fmtH, Input, LiveDot, Modal, PageHead, Ring, Rosette } from "../../components/ui";
+import { IcCal, IcCard, IcCheck, IcClock, IcIn, IcLock, IcMedal, IcOut, IcQr, IcScan, IcShield, IcSpark, IcTrash } from "../../components/icons";
 import { LogoMark } from "../../components/icons";
 import PaymentModal from "../../components/Payment";
 
@@ -498,14 +498,17 @@ function HistoryTab() {
 /* ---------------- profile ---------------- */
 
 function ProfileTab() {
-  const { db, me, updateMember, signWaiver, toast } = useStore();
+  const { db, me, updateMember, signWaiver, toast, deleteMember } = useStore();
   const me_ = me!;
   const [phone, setPhone] = useState(me_.phone);
   const [title, setTitle] = useState(me_.title);
   const [pw, setPw] = useState("");
   const [waiverOpen, setWaiverOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
   const h = memberHours(db, me_.id);
   const tier = tierFor(db.org.tiers, h);
+  const myRecs = db.attendance.filter((a) => a.memberId === me_.id);
+  const myHours = Math.round(myRecs.reduce((s, a) => s + hoursOf(a), 0) * 10) / 10;
 
   return (
     <>
@@ -604,8 +607,26 @@ function ProfileTab() {
             </div>
             <p className="text-[11.5px] text-faint mt-3">Demo note: authentication is simulated — any account card on the sign-in screen works without a password.</p>
           </section>
+
+          {/* danger zone */}
+          <section className="border border-clay/30 bg-clay/4 rounded-xl p-5 anim-rise" style={{ animationDelay: "240ms" }}>
+            <h2 className="font-display font-bold text-[15px] text-clay mb-1.5 flex items-center gap-2"><IcTrash size={16} /> Delete my account</h2>
+            <p className="text-[12.5px] text-soft mb-3.5">
+              Permanently removes your account and all your data — {myRecs.length} attendance record{myRecs.length === 1 ? "" : "s"} ({fmtH(myHours)}), registrations, your waiver signature and medal progress. You'll be signed out and can't sign back in.
+            </p>
+            <Btn variant="danger" size="sm" onClick={() => setConfirmDel(true)}><IcTrash size={14} /> Delete my account</Btn>
+          </section>
         </div>
       </div>
+
+      <Confirm
+        open={confirmDel}
+        onClose={() => setConfirmDel(false)}
+        onYes={() => deleteMember(me_.id, true)}
+        title="Delete your account?"
+        yesLabel="Delete everything"
+        body={`This permanently removes ${fullName(me_)} and all associated data: ${myRecs.length} attendance record${myRecs.length === 1 ? "" : "s"} (${fmtH(myHours)} logged), event registrations, your waiver signature and medals. You'll be signed out immediately and this can't be undone.`}
+      />
 
       <WaiverModal
         open={waiverOpen}
