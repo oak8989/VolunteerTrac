@@ -82,7 +82,7 @@ export interface OrgSettings {
   tiers: Tier[];
   valuePerHour: number;
   payments: { enabled: boolean; accountLabel: string };
-  smtp: { enabled: boolean; host: string; port: number; user: string; from: string };
+  smtp: { enabled: boolean; host: string; port: number; user: string; pass: string; from: string };
 }
 
 export interface EmailMsg {
@@ -90,7 +90,7 @@ export interface EmailMsg {
   to: string;
   subject: string;
   at: string;
-  status: "delivered" | "queued";
+  status: "delivered" | "queued" | "failed";
 }
 
 export interface DB {
@@ -427,6 +427,7 @@ export function seed(): DB {
       host: appConfig.smtp.host,
       port: Number(appConfig.smtp.port) || 587,
       user: appConfig.smtp.user,
+      pass: "",
       from: appConfig.smtp.from || appConfig.admin.email,
     },
   };

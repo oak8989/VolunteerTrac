@@ -33,9 +33,28 @@ services:
       - SMTP_HOST=\${SMTP_HOST:-}
       - SMTP_PORT=\${SMTP_PORT:-587}
       - SMTP_USER=\${SMTP_USER:-}
+      - SMTP_PASS=\${SMTP_PASS:-}
       - SMTP_FROM=\${SMTP_FROM:-}
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # outbound mail relay — real SMTP delivery, internal-only (no published ports)
+  mailer:
+    build: ./mail
+    container_name: volunteertrac-mailer
+    restart: unless-stopped
+    environment:
+      - SMTP_HOST=\${SMTP_HOST:-}
+      - SMTP_PORT=\${SMTP_PORT:-587}
+      - SMTP_USER=\${SMTP_USER:-}
+      - SMTP_PASS=\${SMTP_PASS:-}
+      - SMTP_FROM=\${SMTP_FROM:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:8025/health"]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -152,7 +171,8 @@ const STEPS = [
   { t: "Install Docker", d: "docker.com — or `brew install --cask docker` on macOS." },
   { t: "Get the code", d: "git clone https://github.com/oak8989/volunteertrac.git" },
   { t: "Run the bootstrap", d: "./up.sh — or `make up` if you prefer Make." },
-  { t: "Sign in", d: "Open http://localhost:8080 and pick any demo identity." },
+  { t: "Sign in", d: "Open http://localhost:8080 — the admin credentials from docker-compose are prefilled on first run." },
+  { t: "Connect email", d: "Settings → Email server: set an SMTP host (or SMTP_* in compose) so confirmations deliver for real." },
 ];
 
 const STORAGE_KEY = "volunteertrac:db"; // kept in sync with src/lib/store.tsx
@@ -273,7 +293,7 @@ export default function DeployView() {
         {/* right: checklist + env + compose */}
         <div className="col-span-12 lg:col-span-5 space-y-4">
           <section className={`${card} p-5 anim-rise`} style={{ animationDelay: "100ms" }}>
-            <h2 className="font-display font-bold text-[16px] mb-4">Four steps to live</h2>
+            <h2 className="font-display font-bold text-[16px] mb-4">Five steps to live</h2>
             <div className="relative space-y-4 before:absolute before:left-[13px] before:top-3 before:bottom-3 before:w-px before:bg-line">
               {STEPS.map((s, i) => (
                 <div key={s.t} className="relative flex gap-3 anim-rise" style={{ animationDelay: `${200 + i * 120}ms` }}>

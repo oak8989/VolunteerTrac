@@ -1,0 +1,10 @@
+{
+  "name": "volunteertrac-mailer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Internal SMTP relay for Volunteertrac — sends confirmations, receipts and reset links",
+  "main": "server.js",
+  "dependencies": {
+    "nodemailer": "^6.9.13"
+  }
+}

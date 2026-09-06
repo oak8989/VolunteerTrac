@@ -38,6 +38,7 @@ interface Ctx {
   removeAttendance: (attId: string) => void;
   signWaiver: (memberId: string) => void;
   testEmail: () => void;
+  retryEmail: (id: string) => void;
 }
 
 const StoreCtx = createContext<Ctx | null>(null);
@@ -84,12 +85,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setDb((d) => ({ ...d, activity: [{ id: uid(), at: new Date().toISOString(), kind, text }, ...d.activity].slice(0, 80) }));
   }, []);
 
-  // Outbox: delivered when an SMTP host is configured, queued otherwise.
-  const mail = useCallback((to: string, subject: string) => {
-    const enabled = dbRef.current.org.smtp.enabled;
-    const msg: EmailMsg = { id: uid(), to, subject, at: new Date().toISOString(), status: enabled ? "delivered" : "queued" };
-    setDb((d) => ({ ...d, emails: [msg, ...d.emails].slice(0, 60) }));
+  // Outbox + delivery. Messages are queued instantly (instant UI feedback);
+  // when SMTP is enabled we hand them to the mailer relay at /api/mail and
+  // settle the status to delivered / failed based on the real result.
+  const deliverViaRelay = useCallback(async (id: string, to: string, subject: string): Promise<"delivered" | "failed" | "unreachable"> => {
+    const s = dbRef.current.org.smtp;
+    try {
+      const ctrl = new AbortController();
+      const t = window.setTimeout(() => ctrl.abort(), 2500);
+      const res = await fetch("/api/mail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to,
+          subject,
+          text: `${subject}\n\nYou're receiving this because of your volunteer activity with ${dbRef.current.org.name}.`,
+          smtp: { host: s.host, port: s.port, user: s.user, pass: s.pass, from: s.from },
+        }),
+        signal: ctrl.signal,
+      });
+      window.clearTimeout(t);
+      const status = res.ok ? "delivered" : "failed";
+      setDb((d) => ({ ...d, emails: d.emails.map((m) => (m.id === id ? { ...m, status } : m)) }));
+      return status;
+    } catch {
+      return "unreachable"; // stays queued — retried next send / manual retry
+    }
   }, []);
+
+  const mail = useCallback((to: string, subject: string) => {
+    const msg: EmailMsg = { id: uid(), to, subject, at: new Date().toISOString(), status: "queued" };
+    setDb((d) => ({ ...d, emails: [msg, ...d.emails].slice(0, 60) }));
+    if (dbRef.current.org.smtp.enabled) void deliverViaRelay(msg.id, to, subject);
+  }, [deliverViaRelay]);
+
+  const retryEmail = useCallback((id: string) => {
+    const m = dbRef.current.emails.find((x) => x.id === id);
+    if (!m) return;
+    if (!dbRef.current.org.smtp.enabled) {
+      toast("info", "Still queued", "Enable an SMTP host in Settings → Email server first");
+      return;
+    }
+    void deliverViaRelay(id, m.to, m.subject).then((r) => {
+      if (r === "delivered") toast("ok", "Email delivered", `to ${m.to}`);
+      else if (r === "failed") toast("warn", "SMTP rejected it", "Check host, port and credentials in Email settings");
+      else toast("warn", "Relay unreachable", "Run the stack with docker compose so the mailer sidecar is up");
+    });
+  }, [deliverViaRelay, toast]);
 
   // fires a medal toast if the update crosses a tier upward for memberId
   const medalCheck = useCallback(
@@ -298,16 +340,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       testEmail: () => {
         const d0 = dbRef.current;
         const to = d0.org.smtp.from || appConfig.admin.email;
-        mail(to, "Volunteertrac test message — your mail settings work");
+        const subject = "Volunteertrac test message — your mail settings work";
+        const msg: EmailMsg = { id: uid(), to, subject, at: new Date().toISOString(), status: "queued" };
+        set((d) => ({ ...d, emails: [msg, ...d.emails].slice(0, 60) }));
         log("email", `Test message sent to ${to} from the Email settings panel`);
-        toast(
-          "ok",
-          "Test email sent",
-          d0.org.smtp.enabled ? `via ${d0.org.smtp.host}:${d0.org.smtp.port}` : "queued in the outbox — set an SMTP host to deliver for real"
-        );
+        if (!d0.org.smtp.enabled) {
+          toast("info", "Queued in outbox", "No SMTP host set — run the Docker stack and configure Email server to deliver for real");
+          return;
+        }
+        void deliverViaRelay(msg.id, to, subject).then((r) => {
+          if (r === "delivered") toast("ok", "Test email delivered", `via ${d0.org.smtp.host}:${d0.org.smtp.port} — check ${to}`);
+          else if (r === "failed") toast("warn", "SMTP rejected the test", "Double-check host, port, username and password");
+          else toast("warn", "Mailer relay unreachable", "Run the full stack with docker compose so the mailer sidecar is up");
+        });
       },
+
+      retryEmail,
     };
-  }, [db, toasts, toast, dismiss, log, medalCheck, mail]);
+  }, [db, toasts, toast, dismiss, log, medalCheck, deliverViaRelay, retryEmail]);
 
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
 }

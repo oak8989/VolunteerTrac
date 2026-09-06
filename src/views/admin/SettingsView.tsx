@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useStore } from "../../lib/store";
-import type { OrgSettings } from "../../lib/data";
+import type { DB, OrgSettings } from "../../lib/data";
 import { ACCENTS, downloadText, relTime } from "../../lib/data";
 import { Btn, card, Chip, Field, Input, PageHead, Textarea, Toggle } from "../../components/ui";
 import { IcCard, IcCheck, IcDown, IcMail, IcShield, LogoMark } from "../../components/icons";
@@ -178,16 +178,18 @@ export default function SettingsView() {
               <h2 className="font-display font-bold text-[16px] flex items-center gap-2">
                 <IcMail size={17} className="text-pine-700" /> Email server
               </h2>
-              <Toggle on={form.smtp.enabled} onChange={(v) => setForm((p) => ({ ...p, smtp: { ...p.smtp, enabled: v } }))} label={form.smtp.enabled ? "Connected" : "Queuing locally"} />
+              <Toggle on={form.smtp.enabled} onChange={(v) => setForm((p) => ({ ...p, smtp: { ...p.smtp, enabled: v } }))} label={form.smtp.enabled ? "Enabled" : "Queuing locally"} />
             </div>
-            <p className="text-[12px] text-soft mb-4">
-              SMTP settings for confirmations, receipts and reset links. Prefilled from <span className="font-mono">SMTP_*</span> in your docker-compose. Without a host, mail queues in the outbox below.
+            <p className="text-[12px] text-soft mb-3">
+              Real SMTP delivery for confirmations, receipts and reset links — routed through the <span className="font-mono">mailer</span> sidecar in your compose stack. Prefilled from <span className="font-mono">SMTP_*</span> in docker-compose. Without a host, mail queues in the outbox below.
             </p>
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Host" className="col-span-2"><Input value={form.smtp.host} placeholder="smtp.example.org" onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, host: e.target.value } }))} className="font-mono" /></Field>
+            <RelayStatus enabled={form.smtp.enabled} host={form.smtp.host} />
+            <div className="grid grid-cols-3 gap-3 mt-3">
+              <Field label="Host" className="col-span-2"><Input value={form.smtp.host} placeholder="smtp.mailgun.org" onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, host: e.target.value } }))} className="font-mono" /></Field>
               <Field label="Port"><Input type="number" value={form.smtp.port} onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, port: Number(e.target.value) } }))} className="font-mono" /></Field>
-              <Field label="Username" className="col-span-2"><Input value={form.smtp.user} placeholder="apikey" onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, user: e.target.value } }))} className="font-mono" /></Field>
-              <Field label="From address"><Input type="email" value={form.smtp.from} onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, from: e.target.value } }))} className="font-mono" /></Field>
+              <Field label="Username" className="col-span-2"><Input value={form.smtp.user} placeholder="postmaster@mg.yourdomain.org" onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, user: e.target.value } }))} className="font-mono" /></Field>
+              <Field label="Password"><Input type="password" value={form.smtp.pass} placeholder="••••••••" onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, pass: e.target.value } }))} className="font-mono" /></Field>
+              <Field label="From address" className="col-span-3"><Input type="email" value={form.smtp.from} placeholder="Riverbend Alliance <hello@riverbend.org>" onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, from: e.target.value } }))} className="font-mono" /></Field>
             </div>
             <div className="flex gap-2 mt-4">
               <Btn variant="line" size="sm" onClick={testEmail}><IcMail size={13} /> Send test email</Btn>
@@ -199,14 +201,7 @@ export default function SettingsView() {
             ) : (
               <div className="divide-y divide-line border border-line rounded-[10px] overflow-hidden">
                 {db.emails.slice(0, 6).map((m) => (
-                  <div key={m.id} className="flex items-center gap-3 px-3.5 py-2.5 bg-white/50">
-                    <IcMail size={14} className="text-faint shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[12.5px] font-semibold truncate">{m.subject}</p>
-                      <p className="text-[10.5px] font-mono text-faint truncate">to {m.to} · {relTime(m.at)}</p>
-                    </div>
-                    <Chip tone={m.status === "delivered" ? "pine" : "warn"}>{m.status === "delivered" ? "delivered" : "queued"}</Chip>
-                  </div>
+                  <OutboxRow key={m.id} m={m} />
                 ))}
               </div>
             )}
@@ -214,5 +209,57 @@ export default function SettingsView() {
         </div>
       </div>
     </>
+  );
+}
+
+function RelayStatus({ enabled, host }: { enabled: boolean; host: string }) {
+  const [state, setState] = useState<"checking" | "online" | "offline" | "notset">("checking");
+  useEffect(() => {
+    if (!enabled || !host) return setState("notset");
+    let alive = true;
+    const ctrl = new AbortController();
+    const t = window.setTimeout(() => ctrl.abort(), 1800);
+    fetch("/api/mail/health", { signal: ctrl.signal })
+      .then((r) => { if (alive) setState(r.ok ? "online" : "offline"); })
+      .catch(() => { if (alive) setState("offline"); })
+      .finally(() => window.clearTimeout(t));
+    return () => { alive = false; ctrl.abort(); window.clearTimeout(t); };
+  }, [enabled, host]);
+
+  if (state === "notset") return null;
+  return (
+    <div className={`flex items-center gap-2 rounded-[9px] border px-3 py-2 text-[11.5px] font-semibold ${
+      state === "online" ? "border-pine-200 bg-pine-100/70 text-pine-800" :
+      state === "offline" ? "border-clay/30 bg-clay/8 text-clay" :
+      "border-line bg-paper/70 text-faint"
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${state === "online" ? "bg-pine-600 dot-live" : state === "offline" ? "bg-clay" : "bg-faint"}`} />
+      {state === "checking" && "Pinging the mailer relay…"}
+      {state === "online" && "Mailer relay is online — messages deliver for real"}
+      {state === "offline" && "Mailer relay unreachable — run docker compose up so the mailer sidecar answers at /api/mail"}
+    </div>
+  );
+}
+
+function OutboxRow({ m }: { m: DB["emails"][number] }) {
+  const { retryEmail } = useStore();
+  const tone = m.status === "delivered" ? "pine" : "warn";
+  return (
+    <div className="flex items-center gap-3 px-3.5 py-2.5 bg-white/50">
+      <IcMail size={14} className="text-faint shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[12.5px] font-semibold truncate">{m.subject}</p>
+        <p className="text-[10.5px] font-mono text-faint truncate">to {m.to} · {relTime(m.at)}</p>
+      </div>
+      <Chip tone={tone}>{m.status}</Chip>
+      {m.status !== "delivered" && (
+        <button
+          onClick={() => retryEmail(m.id)}
+          className="h-6 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide border border-line text-soft hover:border-pine-600 hover:text-pine-800 transition cursor-pointer shrink-0"
+        >
+          Retry
+        </button>
+      )}
+    </div>
   );
 }
