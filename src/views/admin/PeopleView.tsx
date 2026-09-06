@@ -1,19 +1,32 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../../lib/store";
 import type { Member } from "../../lib/data";
-import { downloadText, eventState, fmtDay, fmtTime, fullName, GROUPS, hoursOf, memberEvents, memberHours, memberLastActive, medalInfo, relTime, tierFor, toCSV } from "../../lib/data";
-import { Avatar, Btn, card, Chip, Empty, Field, fmtH, Input, Modal, PageHead, Panel, Rosette, Seg, Select, Toggle } from "../../components/ui";
-import { IcDown, IcEye, IcPencil, IcPlus, IcSearch, IcUsers } from "../../components/icons";
+import { downloadText, eventState, fmtDay, fmtMoney, fmtTime, fullName, GROUPS, hoursOf, memberEvents, memberHours, memberLastActive, medalInfo, relTime, tierFor, toCSV } from "../../lib/data";
+import { Avatar, Btn, card, Chip, Confirm, Empty, Field, fmtH, Input, Modal, PageHead, Panel, Rosette, Seg, Select, Toggle } from "../../components/ui";
+import { IcDown, IcEye, IcPencil, IcPlus, IcSearch, IcTrash, IcUsers } from "../../components/icons";
 
 type Filter = "all" | "active" | "inactive";
 
 export default function PeopleView() {
-  const { db, updateMember, addMember } = useStore();
+  const { db, updateMember, addMember, deleteMember } = useStore();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [viewId, setViewId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [delId, setDelId] = useState<string | null>(null);
+
+  // Cascade preview for whichever member is pending deletion.
+  const delMember = delId ? db.members.find((m) => m.id === delId) || null : null;
+  const delRecs = delId ? db.attendance.filter((a) => a.memberId === delId) : [];
+  const delHours = Math.round(delRecs.reduce((s, a) => s + hoursOf(a), 0) * 10) / 10;
+  const delPaid = Math.round(delRecs.reduce((s, a) => s + (a.payment?.amount || 0), 0) * 100) / 100;
+
+  const confirmDelete = () => {
+    if (delId) deleteMember(delId);
+    setDelId(null);
+    if (viewId === delId) setViewId(null);
+  };
 
   const list = useMemo(() => {
     let l = [...db.members];
@@ -102,6 +115,7 @@ export default function PeopleView() {
                         <span className="flex justify-end gap-1">
                           <button title="View activity" onClick={() => setViewId(m.id)} className="p-1.5 rounded-lg text-soft hover:bg-pine-900/6 hover:text-ink transition cursor-pointer"><IcEye size={15} /></button>
                           <button title="Edit profile" onClick={() => setEditId(m.id)} className="p-1.5 rounded-lg text-soft hover:bg-pine-900/6 hover:text-ink transition cursor-pointer"><IcPencil size={15} /></button>
+                          <button title="Delete member & data" onClick={() => setDelId(m.id)} className="p-1.5 rounded-lg text-soft hover:bg-clay/10 hover:text-clay transition cursor-pointer"><IcTrash size={15} /></button>
                           <button
                             title={m.active ? "Deactivate member" : "Reactivate member"}
                             onClick={() => updateMember(m.id, { active: !m.active })}
@@ -124,14 +138,27 @@ export default function PeopleView() {
         </div>
       )}
 
-      {viewed && <MemberPanel m={viewed} onClose={() => setViewId(null)} onEdit={() => { setEditId(viewed.id); }} />}
+      {viewed && <MemberPanel m={viewed} onClose={() => setViewId(null)} onEdit={() => { setEditId(viewed.id); }} onDel={() => setDelId(viewed.id)} />}
       {editId && <EditMemberModal m={db.members.find((m) => m.id === editId)!} onClose={() => setEditId(null)} />}
       <AddMemberModal open={adding} onClose={() => setAdding(false)} onAdd={addMember} />
+
+      <Confirm
+        open={!!delMember}
+        onClose={() => setDelId(null)}
+        onYes={confirmDelete}
+        title={`Delete ${delMember ? fullName(delMember) : "member"}?`}
+        yesLabel="Delete permanently"
+        body={
+          delMember
+            ? `This permanently removes ${fullName(delMember)}'s account and all of their data: ${delRecs.length} attendance record${delRecs.length === 1 ? "" : "s"} (${fmtH(delHours)} logged${delPaid > 0 ? `, ${fmtMoney(delPaid)} in fees` : ""}), every event registration, their waiver signature and group memberships. This can't be undone.`
+            : ""
+        }
+      />
     </>
   );
 }
 
-function MemberPanel({ m, onClose, onEdit }: { m: Member; onClose: () => void; onEdit: () => void }) {
+function MemberPanel({ m, onClose, onEdit, onDel }: { m: Member; onClose: () => void; onEdit: () => void; onDel: () => void }) {
   const { db } = useStore();
   const h = memberHours(db, m.id);
   const info = medalInfo(db.org.tiers, h);
@@ -145,7 +172,12 @@ function MemberPanel({ m, onClose, onEdit }: { m: Member; onClose: () => void; o
 
   return (
     <Panel open onClose={onClose} title={fullName(m)} sub={`${m.email} · joined ${new Date(m.joinedAt).toLocaleDateString([], { month: "long", year: "numeric" })}`} w={500}
-      footer={<Btn variant="line" onClick={() => { onEdit(); onClose(); }}><IcPencil size={14} /> Edit profile</Btn>}
+      footer={
+        <>
+          <Btn variant="line" onClick={() => { onEdit(); onClose(); }}><IcPencil size={14} /> Edit profile</Btn>
+          <Btn variant="danger" onClick={() => { onClose(); onDel(); }}><IcTrash size={14} /> Delete member</Btn>
+        </>
+      }
     >
       <div className="flex items-center gap-4 mb-5">
         <Avatar name={fullName(m)} color={m.color} size={56} />

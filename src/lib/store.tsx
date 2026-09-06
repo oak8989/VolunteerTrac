@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Attendance, DB, EmailMsg, EventItem, Member, OrgSettings, Payment } from "./data";
-import { AVATAR_COLORS, fmtMoney, fullName, memberHours, receiptId, seed, SEED_V, tierFor, uid } from "./data";
+import { AVATAR_COLORS, fmtMoney, fullName, hoursOf, memberHours, receiptId, seed, SEED_V, tierFor, uid } from "./data";
 import { appConfig } from "./config";
 
 const KEY = "volunteertrac:db";
@@ -39,6 +39,9 @@ interface Ctx {
   signWaiver: (memberId: string) => void;
   testEmail: () => void;
   retryEmail: (id: string) => void;
+  /** Deletes the member and every attendance record, registration and payment
+   *  tied to them. `self` allows closing your own account from the portal. */
+  deleteMember: (id: string, self?: boolean) => void;
 }
 
 const StoreCtx = createContext<Ctx | null>(null);
@@ -335,6 +338,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const m = dbRef.current.members.find((x) => x.id === memberId);
         if (m) log("system", `${fullName(m)} signed the ${dbRef.current.org.waiver.title}`);
         toast("ok", "Waiver signed", "Stored on the member profile");
+      },
+
+      deleteMember: (id, self = false) => {
+        const d0 = dbRef.current;
+        const m = d0.members.find((x) => x.id === id);
+        if (!m) return;
+
+        // Safeguard: can't delete the account you're currently signed in as
+        // (unless this is an explicit self-closure from the portal).
+        if (!self && id === d0.session) {
+          toast("warn", "Signed in as this account", "Sign out (or use the portal's “Delete my account”) before removing it.");
+          return;
+        }
+        // Safeguard: never delete the last remaining admin.
+        if (m.role === "admin") {
+          const admins = d0.members.filter((x) => x.role === "admin" && x.active);
+          if (admins.length <= 1) {
+            toast("warn", "Can't remove the last admin", "Promote another member to admin first.");
+            return;
+          }
+        }
+
+        // Cascade: every attendance record, registration and payment for this member.
+        const recs = d0.attendance.filter((a) => a.memberId === id);
+        const hrs = Math.round(recs.reduce((s, a) => s + hoursOf(a), 0) * 10) / 10;
+        const paid = Math.round(recs.reduce((s, a) => s + (a.payment?.amount || 0), 0) * 100) / 100;
+        const hrsLabel = `${hrs % 1 === 0 ? hrs : hrs.toFixed(1)}h`;
+
+        set((d) => ({
+          ...d,
+          members: d.members.filter((x) => x.id !== id),
+          attendance: d.attendance.filter((a) => a.memberId !== id),
+          events: d.events.map((e) => (e.invitees.includes(id) ? { ...e, invitees: e.invitees.filter((v) => v !== id) } : e)),
+          session: d.session === id ? null : d.session,
+        }));
+
+        log("system", `${self ? "Closed own account" : `Deleted ${fullName(m)}`} — removed ${recs.length} attendance record${recs.length === 1 ? "" : "s"} (${hrsLabel}${paid > 0 ? `, ${fmtMoney(paid)} in fees` : ""})`);
+        toast("ok", `${fullName(m)} deleted`, `Removed their account plus ${recs.length} attendance record${recs.length === 1 ? "" : "s"} and ${hrsLabel} of history.`);
       },
 
       testEmail: () => {
