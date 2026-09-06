@@ -2,7 +2,7 @@ import { useStore } from "../../lib/store";
 import type { Activity } from "../../lib/data";
 import { eventState, fmtTime, fullName, memberEvents, memberHours, monthSeries, recordsFor, relTime, tierFor, totalHours } from "../../lib/data";
 import { Avatar, Bar, Btn, card, Chip, Clock, fmtH, LiveDot, PageHead, Rosette, Spark, useCountUp } from "../../components/ui";
-import { IcCal, IcChevR, IcIn, IcInfo, IcMail, IcMedal, IcPencil, IcQr } from "../../components/icons";
+import { IcCal, IcCard, IcChevR, IcIn, IcInfo, IcMail, IcMedal, IcPencil, IcQr, IcRefund } from "../../components/icons";
 
 export default function DashboardView({ go }: { go: (tab: string) => void }) {
   const { db, me } = useStore();
@@ -182,10 +182,14 @@ function FeedRow({ a }: { a: Activity }) {
     a.kind === "medal" ? <IcMedal size={12} /> :
     a.kind === "walkin" ? <IcQr size={12} /> :
     a.kind === "edit" ? <IcPencil size={12} /> :
+    a.kind === "payment" ? <IcCard size={12} /> :
+    a.kind === "refund" ? <IcRefund size={12} /> :
     a.kind === "register" ? <IcCal size={12} /> :
     a.kind === "system" ? <IcInfo size={12} /> : <IcIn size={12} />;
   const tint =
     a.kind === "medal" ? "bg-[color-mix(in_srgb,#e3a93c_20%,white)] text-[#8a6410]" :
+    a.kind === "payment" ? "bg-[color-mix(in_srgb,#e3a93c_16%,white)] text-[#8a6410]" :
+    a.kind === "refund" ? "bg-[color-mix(in_srgb,var(--color-clay)_12%,white)] text-clay" :
     a.kind === "walkin" ? "bg-pine-100 text-pine-700" :
     a.kind === "email" ? "bg-[color-mix(in_srgb,var(--acc)_16%,white)] text-[var(--acc-deep)]" :
     "bg-pine-100 text-pine-700";

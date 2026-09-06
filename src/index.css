@@ -27,6 +27,11 @@
   --color-clay: #b8432a;
 }
 
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 78px;
+}
+
 html,
 body {
   margin: 0;

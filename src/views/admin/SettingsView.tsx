@@ -4,7 +4,7 @@ import { useStore } from "../../lib/store";
 import type { OrgSettings } from "../../lib/data";
 import { ACCENTS, downloadText } from "../../lib/data";
 import { Btn, card, Chip, Confirm, Field, Input, PageHead, Textarea, Toggle } from "../../components/ui";
-import { IcCheck, IcDown, IcShield, IcTrash, LogoMark } from "../../components/icons";
+import { IcCard, IcCheck, IcDown, IcShield, IcTrash, LogoMark } from "../../components/icons";
 
 export default function SettingsView() {
   const { db, saveOrg, toast, resetDemo } = useStore();
@@ -12,6 +12,7 @@ export default function SettingsView() {
     ...db.org,
     waiver: { ...db.org.waiver },
     tiers: db.org.tiers.map((t) => ({ ...t })),
+    payments: { ...db.org.payments },
   }));
   const [confirmReset, setConfirmReset] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -114,6 +115,27 @@ export default function SettingsView() {
                 <Textarea rows={7} value={form.waiver.body} onChange={(e) => setForm((p) => ({ ...p, waiver: { ...p.waiver, body: e.target.value } }))} />
               </Field>
             </div>
+          </section>
+
+          {/* payments */}
+          <section className={`${card} p-5 anim-rise`} style={{ animationDelay: "120ms" }}>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="font-display font-bold text-[16px] flex items-center gap-2">
+                <IcCard size={17} className="text-pine-700" /> Event payments
+              </h2>
+              <Toggle on={form.payments.enabled} onChange={(v) => setForm((p) => ({ ...p, payments: { ...p.payments, enabled: v } }))} label={form.payments.enabled ? "Accepting" : "Disabled"} />
+            </div>
+            <p className="text-[12px] text-soft mb-4">
+              Charge a per-person fee on trainings and ticketed events. Members pay at registration and get an emailed receipt; cancelling refunds automatically.
+            </p>
+            <Field label="Payout account label" hint="Shown on receipts and in the ledger.">
+              <Input value={form.payments.accountLabel} disabled={!form.payments.enabled} onChange={(e) => setForm((p) => ({ ...p, payments: { ...p.payments, accountLabel: e.target.value } }))} className={!form.payments.enabled ? "opacity-55" : ""} />
+            </Field>
+            {form.payments.enabled && (
+              <p className="text-[11.5px] font-mono text-pine-800 bg-pine-100/70 rounded-lg px-3 py-2 mt-3">
+                Set fees per event under Events → New event.
+              </p>
+            )}
           </section>
 
           {/* awards */}

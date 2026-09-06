@@ -18,3 +18,17 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+
+  # Cache tier — Redis 7 with an LRU eviction policy. The SPA memoizes hot
+  # aggregates in-browser (Admin → Deploy shows live stats); this service is
+  # the drop-in tier for an API/backend to share the same policy at scale.
+  cache:
+    image: redis:7-alpine
+    container_name: volunteertrac-cache
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

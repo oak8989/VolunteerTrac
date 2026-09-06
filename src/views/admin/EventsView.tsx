@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useStore } from "../../lib/store";
 import type { Attendance, EventItem } from "../../lib/data";
-import { at, downloadText, eventHours, eventState, fmtDay, fmtDayLong, fmtRange, fmtTime, fromLocal, fullName, GROUPS, hoursOf, relTime, toCSV, toLocal, uid } from "../../lib/data";
+import { at, downloadText, eventHours, eventRevenue, eventState, fmtDay, fmtDayLong, fmtMoney, fmtRange, fmtTime, fromLocal, fullName, GROUPS, hoursOf, relTime, toCSV, toLocal, uid } from "../../lib/data";
 import { Avatar, Btn, card, Chip, Confirm, Empty, Field, Input, LiveDot, Modal, PageHead, Seg, Select, Textarea, fmtH } from "../../components/ui";
-import { IcBack, IcCal, IcChevR, IcDown, IcIn, IcOut, IcPencil, IcPin, IcPlus, IcQr, IcRepeat, IcSearch, IcShield, IcTrash, IcUsers, IcX } from "../../components/icons";
+import { IcBack, IcCal, IcCheck, IcChevR, IcDown, IcIn, IcOut, IcPencil, IcPin, IcPlus, IcQr, IcRepeat, IcSearch, IcShield, IcTrash, IcUsers, IcX } from "../../components/icons";
 
 type Filter = "all" | "upcoming" | "live" | "past" | "recurring";
 
@@ -104,6 +104,7 @@ export default function EventsView() {
                     {e.type === "private" ? <Chip tone="ink">Private</Chip> : <Chip tone="pine">Public</Chip>}
                     {e.seriesId && <Chip tone="acc"><IcRepeat size={10} /> series</Chip>}
                     {e.requireWaiver && <Chip tone="line"><IcShield size={10} /> waiver</Chip>}
+                    {e.fee > 0 && <Chip tone="gold">{fmtMoney(e.fee)}</Chip>}
                   </span>
                   <span className="flex items-center gap-1.5 text-[12px] text-soft font-mono mt-1">
                     {fmtTime(e.start)}–{fmtTime(e.end)} <span className="text-linedark">·</span> <IcPin size={11} className="text-faint" /> {e.location}
@@ -143,7 +144,7 @@ export default function EventsView() {
 function EventDetail({
   ev, back, onDelete, onCheckIn, onCheckOut,
 }: { ev: EventItem; back: () => void; onDelete: () => void; onCheckIn: (memberId: string) => void; onCheckOut: (memberId: string) => void }) {
-  const { db, removeAttendance, saveTimes, register, checkIn } = useStore();
+  const { db, removeAttendance, saveTimes, register, checkIn, markPaid } = useStore();
   const [qr, setQr] = useState(false);
   const [walkModal, setWalkModal] = useState(false);
   const [walkSel, setWalkSel] = useState("");
@@ -163,7 +164,7 @@ function EventDetail({
   const hrs = eventHours(db, ev.id);
 
   const exportCSV = () => {
-    const rows: (string | number)[][] = [["Member", "Email", "Status", "Walk-in", "Check-in", "Check-out", "Hours"]];
+    const rows: (string | number)[][] = [["Member", "Email", "Status", "Walk-in", "Check-in", "Check-out", "Hours", "Payment", "Receipt"]];
     recs.forEach((r) => {
       const m = db.members.find((x) => x.id === r.memberId)!;
       rows.push([
@@ -173,6 +174,8 @@ function EventDetail({
         r.checkIn ? new Date(r.checkIn).toLocaleString() : "",
         r.checkOut ? new Date(r.checkOut).toLocaleString() : "",
         hoursOf(r),
+        r.payment ? r.payment.amount.toFixed(2) : ev.fee > 0 ? "due" : "free",
+        r.payment ? r.payment.receipt : "",
       ]);
     });
     downloadText(`${ev.title.replace(/\s+/g, "-").toLowerCase()}-attendance.csv`, toCSV(rows));
@@ -206,12 +209,13 @@ function EventDetail({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
         {[
           { l: "Registered", v: `${recs.length}/${ev.capacity}` },
           { l: "Checked in", v: String(checkedIn), live: checkedIn > 0 },
           { l: "Completed", v: String(done) },
-          { l: "Hours logged", v: fmtH(hrs), accent: true },
+          { l: "Hours logged", v: fmtH(hrs) },
+          { l: ev.fee > 0 ? `Revenue · ${fmtMoney(ev.fee)}/person` : "Revenue", v: fmtMoney(eventRevenue(db, ev.id)), accent: true },
         ].map((s) => (
           <div key={s.l} className={`${card} px-4 py-3`}>
             <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-soft flex items-center gap-1.5">
@@ -251,6 +255,7 @@ function EventDetail({
                   <th className="font-bold px-3 py-2.5">Check-in</th>
                   <th className="font-bold px-3 py-2.5">Check-out</th>
                   <th className="font-bold px-3 py-2.5 text-right">Hours</th>
+                  <th className="font-bold px-3 py-2.5">Payment</th>
                   <th className="font-bold px-3 py-2.5 text-right">Actions</th>
                 </tr>
               </thead>
@@ -284,6 +289,25 @@ function EventDetail({
                       <td className="px-3 py-2.5 font-mono text-[12px] tnum text-soft">{r.checkIn ? fmtTime(r.checkIn) : "—"}</td>
                       <td className="px-3 py-2.5 font-mono text-[12px] tnum text-soft">{r.checkOut ? fmtTime(r.checkOut) : "—"}</td>
                       <td className="px-3 py-2.5 font-mono text-[12.5px] font-semibold tnum text-right">{fmtH(hoursOf(r))}</td>
+                      <td className="px-3 py-2.5">
+                        {r.payment ? (
+                          <span title={`Receipt ${r.payment.receipt} · ${new Date(r.payment.at).toLocaleDateString()}`}>
+                            <Chip tone="pine"><IcCheck size={10} /> {fmtMoney(r.payment.amount)}</Chip>
+                          </span>
+                        ) : ev.fee > 0 ? (
+                          <span className="flex items-center gap-1.5">
+                            <Chip tone="warn">due {fmtMoney(ev.fee)}</Chip>
+                            <button
+                              onClick={() => markPaid(r.id, ev.fee)}
+                              className="h-6 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide border border-line text-soft hover:border-pine-600 hover:text-pine-800 transition cursor-pointer"
+                            >
+                              Mark paid
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-mono text-faint">free</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2.5">
                         <span className="flex justify-end gap-1">
                           {!r.checkIn && (
@@ -423,7 +447,9 @@ function CreateEventModal({ open, onClose }: { open: boolean; onClose: () => voi
   const [recur, setRecur] = useState<"none" | "weekly" | "monthly">("none");
   const [count, setCount] = useState(4);
   const [waiver, setWaiver] = useState(false);
+  const [fee, setFee] = useState(0);
   const [err, setErr] = useState("");
+  const paymentsOn = db.org.payments.enabled;
 
   const submit = () => {
     if (!title.trim()) return setErr("Give the event a title.");
@@ -448,11 +474,12 @@ function CreateEventModal({ open, onClose }: { open: boolean; onClose: () => voi
       evts.push({
         id: uid(), seriesId, title: title.trim(), description: desc.trim(),
         location: location.trim() || "TBD", start: s.toISOString(), end: e.toISOString(),
-        capacity, type, invitees, requireWaiver: waiver, createdAt: new Date().toISOString(),
+        capacity, type, invitees, requireWaiver: waiver, fee: paymentsOn ? Math.max(0, fee) : 0,
+        createdAt: new Date().toISOString(),
       });
     }
     addEvents(evts);
-    setTitle(""); setDesc(""); setLocation(""); setGroups([]); setRecur("none"); setWaiver(false);
+    setTitle(""); setDesc(""); setLocation(""); setGroups([]); setRecur("none"); setWaiver(false); setFee(0);
     onClose();
   };
 
@@ -479,6 +506,13 @@ function CreateEventModal({ open, onClose }: { open: boolean; onClose: () => voi
         <Field label="Start time"><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></Field>
         <Field label="Duration (hours)"><Input type="number" min={0.5} step={0.5} value={dur} onChange={(e) => setDur(Number(e.target.value))} /></Field>
         <Field label="Capacity"><Input type="number" min={1} value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} /></Field>
+        <Field
+          label="Fee per person ($)"
+          hint={paymentsOn ? "0 = free event. Members pay at registration; receipts are emailed." : "Payments are disabled — enable them in Settings first."}
+          className="sm:col-span-2"
+        >
+          <Input type="number" min={0} step={0.5} value={fee} disabled={!paymentsOn} onChange={(e) => setFee(Number(e.target.value))} className={!paymentsOn ? "opacity-55" : ""} />
+        </Field>
         <Field label="Location" className="sm:col-span-2"><Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Riverbend Park, East Gate" /></Field>
 
         <div className="sm:col-span-2">

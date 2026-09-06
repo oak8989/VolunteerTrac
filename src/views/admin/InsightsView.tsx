@@ -1,5 +1,5 @@
 import { useStore } from "../../lib/store";
-import { eventHours, eventState, fmtDay, fullName, memberEvents, memberHours, medalInfo, monthSeries, recordsFor, tierFor, totalHours } from "../../lib/data";
+import { eventHours, eventState, fmtDay, fmtMoney, fullName, memberEvents, memberHours, medalInfo, monthSeries, recordsFor, tierFor, totalHours, totalRevenue } from "../../lib/data";
 import { Avatar, Bars, Bar as ProgressBar, card, Chip, fmtH, PageHead, Rosette, useCountUp } from "../../components/ui";
 import { IcMedal } from "../../components/icons";
 
@@ -36,13 +36,14 @@ export default function InsightsView() {
       <PageHead eyebrow="Track your impact" title="Impact ledger" sub="Participation per member, per event, and across the whole organization — the numbers you put in the annual report." />
 
       {/* headline stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-5">
         {[
           { l: "Total hours", v: `${hoursAnim.toFixed(0)}h`, big: true },
           { l: "Est. community value", v: `$${Math.round(th * db.org.valuePerHour).toLocaleString()}` },
           { l: "Events held", v: String(held.length) },
           { l: "Avg / volunteer", v: fmtH(Math.round(avg * 10) / 10) },
           { l: "Show-up rate", v: `${rate}%` },
+          { l: "Fees collected", v: fmtMoney(totalRevenue(db)) },
         ].map((s, i) => (
           <div key={s.l} className={`${card} px-4 py-3.5 anim-rise ${s.big ? "col-span-2 lg:col-span-1 bg-pine-900 border-pine-900 text-paper" : ""}`} style={{ animationDelay: `${i * 50}ms` }}>
             <p className={`text-[10.5px] font-bold uppercase tracking-[0.1em] ${s.big ? "text-pine-200" : "text-soft"}`}>{s.l}</p>

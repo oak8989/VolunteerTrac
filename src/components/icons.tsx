@@ -199,6 +199,18 @@ export const IcHome = mk(
 export const IcWave = mk(
   <path d="M3 14.5c2-3 4-3 6 0s4 3 6 0 4-3 6 0M3 9.5c2-3 4-3 6 0s4 3 6 0 4-3 6 0" />
 );
+export const IcCard = mk(
+  <>
+    <rect x="3" y="5.5" width="18" height="13" rx="2" />
+    <path d="M3 10h18M6.5 14.5h4" />
+  </>
+);
+export const IcRefund = mk(
+  <>
+    <path d="M4 9.5h11a4.5 4.5 0 010 9H8" />
+    <path d="M8 5.5l-4 4 4 4" />
+  </>
+);
 export const IcLeaf = mk(
   <>
     <path d="M19.5 4.5c-8.5 0-13 4.5-13 10 0 2.6 1.6 4.6 4 5 6.5-1 10-6 9-15z" />

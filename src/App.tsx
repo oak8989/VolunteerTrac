@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import { Component } from "react";
+import type { ReactNode } from "react";
 import { StoreProvider, useStore } from "./lib/store";
 import { darken, fullName, totalHours } from "./lib/data";
-import Login from "./views/Login";
+import Landing from "./views/Landing";
 import DashboardView from "./views/admin/DashboardView";
 import EventsView from "./views/admin/EventsView";
 import PeopleView from "./views/admin/PeopleView";
@@ -34,11 +36,37 @@ const onAccent = (hex: string) => {
   return l > 150 ? "#231a05" : "#fdf8ec";
 };
 
+class ErrorBoundary extends Component<{ children: ReactNode }, { err: boolean }> {
+  state = { err: false };
+  static getDerivedStateFromError() {
+    return { err: true };
+  }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-[420px] text-center">
+          <p className="font-display font-bold text-[26px] tracking-tight">Something snagged on the trail.</p>
+          <p className="text-[13.5px] text-soft mt-2">An unexpected error occurred. Your data is safe in this browser — reload to continue where you left off.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-5 h-10 px-5 rounded-[9px] font-semibold text-[13px] bg-pine-900 text-paper hover:bg-pine-800 transition cursor-pointer"
+          >
+            Reload the app
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
 export default function App() {
   return (
-    <StoreProvider>
-      <Root />
-    </StoreProvider>
+    <ErrorBoundary>
+      <StoreProvider>
+        <Root />
+      </StoreProvider>
+    </ErrorBoundary>
   );
 }
 
@@ -62,7 +90,7 @@ function Root() {
   if (!me) {
     return (
       <div style={vars} className="min-h-screen bg-paper text-ink font-sans">
-        <Login />
+        <Landing />
         <ToastHost />
       </div>
     );
