@@ -23,6 +23,17 @@ services:
       - "\${PORT:-8080}:80"
     environment:
       - TZ=\${TZ:-UTC}
+      # admin user provisioned at first boot
+      - ADMIN_NAME=\${ADMIN_NAME:-Alex Morgan}
+      - ADMIN_EMAIL=\${ADMIN_EMAIL:-admin@volunteertrac.local}
+      - ADMIN_PASSWORD=\${ADMIN_PASSWORD:-changeme}
+      # white-label org name (empty keeps the built-in default)
+      - ORG_NAME=\${ORG_NAME:-}
+      # email server (empty SMTP_HOST queues mail in the outbox)
+      - SMTP_HOST=\${SMTP_HOST:-}
+      - SMTP_PORT=\${SMTP_PORT:-587}
+      - SMTP_USER=\${SMTP_USER:-}
+      - SMTP_FROM=\${SMTP_FROM:-}
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1/"]
       interval: 30s
