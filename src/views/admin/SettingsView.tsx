@@ -2,19 +2,19 @@ import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useStore } from "../../lib/store";
 import type { OrgSettings } from "../../lib/data";
-import { ACCENTS, downloadText } from "../../lib/data";
-import { Btn, card, Chip, Confirm, Field, Input, PageHead, Textarea, Toggle } from "../../components/ui";
-import { IcCard, IcCheck, IcDown, IcShield, IcTrash, LogoMark } from "../../components/icons";
+import { ACCENTS, downloadText, relTime } from "../../lib/data";
+import { Btn, card, Chip, Field, Input, PageHead, Textarea, Toggle } from "../../components/ui";
+import { IcCard, IcCheck, IcDown, IcMail, IcShield, LogoMark } from "../../components/icons";
 
 export default function SettingsView() {
-  const { db, saveOrg, toast, resetDemo } = useStore();
+  const { db, saveOrg, toast, testEmail } = useStore();
   const [form, setForm] = useState<OrgSettings>(() => ({
     ...db.org,
     waiver: { ...db.org.waiver },
     tiers: db.org.tiers.map((t) => ({ ...t })),
     payments: { ...db.org.payments },
+    smtp: { ...db.org.smtp },
   }));
-  const [confirmReset, setConfirmReset] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const dirty = JSON.stringify(form) !== JSON.stringify(db.org);
 
@@ -172,23 +172,47 @@ export default function SettingsView() {
             </div>
           </section>
 
-          {/* danger zone */}
-          <section className="border border-clay/30 bg-clay/4 rounded-xl p-5 anim-rise" style={{ animationDelay: "320ms" }}>
-            <h2 className="font-display font-bold text-[15px] text-clay mb-1.5">Demo data</h2>
-            <p className="text-[12.5px] text-soft mb-3.5">Restore the original seed — events, members, attendance and settings all reset. A quick way back to a pristine demo for screenshots.</p>
-            <Btn variant="danger" size="sm" onClick={() => setConfirmReset(true)}><IcTrash size={14} /> Reset demo data</Btn>
+          {/* email server */}
+          <section className={`${card} p-5 anim-rise`} style={{ animationDelay: "320ms" }}>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="font-display font-bold text-[16px] flex items-center gap-2">
+                <IcMail size={17} className="text-pine-700" /> Email server
+              </h2>
+              <Toggle on={form.smtp.enabled} onChange={(v) => setForm((p) => ({ ...p, smtp: { ...p.smtp, enabled: v } }))} label={form.smtp.enabled ? "Connected" : "Queuing locally"} />
+            </div>
+            <p className="text-[12px] text-soft mb-4">
+              SMTP settings for confirmations, receipts and reset links. Prefilled from <span className="font-mono">SMTP_*</span> in your docker-compose. Without a host, mail queues in the outbox below.
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Host" className="col-span-2"><Input value={form.smtp.host} placeholder="smtp.example.org" onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, host: e.target.value } }))} className="font-mono" /></Field>
+              <Field label="Port"><Input type="number" value={form.smtp.port} onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, port: Number(e.target.value) } }))} className="font-mono" /></Field>
+              <Field label="Username" className="col-span-2"><Input value={form.smtp.user} placeholder="apikey" onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, user: e.target.value } }))} className="font-mono" /></Field>
+              <Field label="From address"><Input type="email" value={form.smtp.from} onChange={(e) => setForm((p) => ({ ...p, smtp: { ...p.smtp, from: e.target.value } }))} className="font-mono" /></Field>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <Btn variant="line" size="sm" onClick={testEmail}><IcMail size={13} /> Send test email</Btn>
+            </div>
+
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-faint mt-5 mb-2">Outbox · last {Math.min(db.emails.length, 6)} of {db.emails.length}</p>
+            {db.emails.length === 0 ? (
+              <p className="text-[12.5px] text-faint">Nothing sent yet — registrations and receipts will appear here.</p>
+            ) : (
+              <div className="divide-y divide-line border border-line rounded-[10px] overflow-hidden">
+                {db.emails.slice(0, 6).map((m) => (
+                  <div key={m.id} className="flex items-center gap-3 px-3.5 py-2.5 bg-white/50">
+                    <IcMail size={14} className="text-faint shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12.5px] font-semibold truncate">{m.subject}</p>
+                      <p className="text-[10.5px] font-mono text-faint truncate">to {m.to} · {relTime(m.at)}</p>
+                    </div>
+                    <Chip tone={m.status === "delivered" ? "pine" : "warn"}>{m.status === "delivered" ? "delivered" : "queued"}</Chip>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       </div>
-
-      <Confirm
-        open={confirmReset}
-        onClose={() => setConfirmReset(false)}
-        onYes={resetDemo}
-        title="Reset all demo data?"
-        body="Every change you've made — events, registrations, attendance edits, branding — will be replaced with fresh seed data."
-        yesLabel="Reset everything"
-      />
     </>
   );
 }

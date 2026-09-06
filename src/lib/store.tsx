@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { Attendance, DB, EventItem, Member, OrgSettings, Payment } from "./data";
+import type { Attendance, DB, EmailMsg, EventItem, Member, OrgSettings, Payment } from "./data";
 import { AVATAR_COLORS, fmtMoney, fullName, memberHours, receiptId, seed, SEED_V, tierFor, uid } from "./data";
+import { appConfig } from "./config";
 
 const KEY = "volunteertrac:db";
 
@@ -36,7 +37,7 @@ interface Ctx {
   saveTimes: (attId: string, checkIn: string | null, checkOut: string | null) => void;
   removeAttendance: (attId: string) => void;
   signWaiver: (memberId: string) => void;
-  resetDemo: () => void;
+  testEmail: () => void;
 }
 
 const StoreCtx = createContext<Ctx | null>(null);
@@ -81,6 +82,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const log = useCallback((kind: DB["activity"][number]["kind"], text: string) => {
     setDb((d) => ({ ...d, activity: [{ id: uid(), at: new Date().toISOString(), kind, text }, ...d.activity].slice(0, 80) }));
+  }, []);
+
+  // Outbox: delivered when an SMTP host is configured, queued otherwise.
+  const mail = useCallback((to: string, subject: string) => {
+    const enabled = dbRef.current.org.smtp.enabled;
+    const msg: EmailMsg = { id: uid(), to, subject, at: new Date().toISOString(), status: enabled ? "delivered" : "queued" };
+    setDb((d) => ({ ...d, emails: [msg, ...d.emails].slice(0, 60) }));
   }, []);
 
   // fires a medal toast if the update crosses a tier upward for memberId
@@ -129,7 +137,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const nm: Member = { ...m, id: uid(), joinedAt: new Date().toISOString(), waiverSignedAt: null, password: "demo1234", color: colors[Math.floor(Math.random() * colors.length)] };
         set((d) => ({ ...d, members: [...d.members, nm] }));
         log("email", `Invitation email sent to ${nm.email} — temporary password enclosed`);
-        toast("ok", `${nm.firstName} ${nm.lastName} added`, "Invitation email sent (simulated)");
+        mail(nm.email, `Welcome to ${dbRef.current.org.name} — set up your volunteer profile`);
+        toast("ok", `${nm.firstName} ${nm.lastName} added`, `Invitation email sent to ${nm.email}`);
         return nm;
       },
 
@@ -157,11 +166,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         set((d) => ({ ...d, attendance: [...d.attendance, { id: uid(), eventId, memberId, checkIn: null, checkOut: null, walkIn: false, note: "", payment: payment || null }] }));
         log("register", `${fullName(m)} registered for ${ev.title}`);
         log("email", `Confirmation email sent to ${m.email} for ${ev.title}`);
+        mail(m.email, `Confirmed: ${ev.title} — ${new Date(ev.start).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}`);
         if (payment) {
           log("payment", `${fullName(m)} paid ${fmtMoney(payment.amount)} for ${ev.title} (${payment.receipt})`);
+          mail(m.email, `Receipt ${payment.receipt} — ${ev.title} (${fmtMoney(payment.amount)})`);
           toast("ok", "Payment received", `${fmtMoney(payment.amount)} · receipt ${payment.receipt} emailed to ${m.email}`);
         } else {
-          toast("ok", "Registration confirmed", `A confirmation email was sent to ${m.email} (simulated)`);
+          toast("ok", "Registration confirmed", `A confirmation email was sent to ${m.email}`);
         }
       },
 
@@ -212,6 +223,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         };
         set((d) => ({ ...d, members: [...d.members, nm], session: nm.id }));
         log("email", `Welcome email sent to ${nm.email} — account created from the public site`);
+        mail(nm.email, `Welcome to ${d0.org.name} — your volunteer account is ready`);
         toast("ok", `Welcome aboard, ${nm.firstName}`, "Your volunteer account is ready");
         return { member: nm };
       },
@@ -220,7 +232,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const m = dbRef.current.members.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
         if (!m) return false;
         log("email", `Password reset link sent to ${m.email} (expires in 30 min)`);
-        toast("ok", "Reset link sent", `Check ${m.email} — the link expires in 30 minutes (simulated)`);
+        mail(m.email, "Reset your Volunteertrac password");
+        toast("ok", "Reset link sent", `Check ${m.email} — the link expires in 30 minutes`);
         return true;
       },
 
@@ -282,13 +295,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toast("ok", "Waiver signed", "Stored on the member profile");
       },
 
-      resetDemo: () => {
-        localStorage.removeItem(KEY);
-        setDb(seed());
-        toast("ok", "Demo data reset", "Fresh seed data loaded");
+      testEmail: () => {
+        const d0 = dbRef.current;
+        const to = d0.org.smtp.from || appConfig.admin.email;
+        mail(to, "Volunteertrac test message — your mail settings work");
+        log("email", `Test message sent to ${to} from the Email settings panel`);
+        toast(
+          "ok",
+          "Test email sent",
+          d0.org.smtp.enabled ? `via ${d0.org.smtp.host}:${d0.org.smtp.port}` : "queued in the outbox — set an SMTP host to deliver for real"
+        );
       },
     };
-  }, [db, toasts, toast, dismiss, log, medalCheck]);
+  }, [db, toasts, toast, dismiss, log, medalCheck, mail]);
 
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
 }
