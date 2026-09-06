@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useStore } from "../lib/store";
+import { appConfig } from "../lib/config";
 import type { EventItem, Member } from "../lib/data";
 import { eventState, fmtDay, fmtMoney, fmtTime, fullName, recordsFor, relTime, tierFor, totalHours } from "../lib/data";
 import { Btn, Chip, Clock, Field, Input, LiveDot, Modal, Rosette, useCountUp } from "../components/ui";
@@ -9,7 +10,7 @@ import { IcCal, IcCard, IcCheck, IcMedal, IcPin, IcQr, IcShield, IcSpark, LogoMa
 type Tab = "signin" | "signup" | "reset";
 
 export default function Landing() {
-  const { db, login, attemptLogin, createAccount, resetPassword, register, toast } = useStore();
+  const { db, attemptLogin, createAccount, resetPassword, register, toast } = useStore();
   const [tab, setTab] = useState<Tab | null>(null);
   const [pending, setPending] = useState<EventItem | null>(null);
   const [tick, setTick] = useState(0);
@@ -247,13 +248,13 @@ export default function Landing() {
         </div>
         <div className="border-t border-white/10">
           <p className="mx-auto max-w-[1120px] px-5 py-4 font-mono text-[10.5px] text-pine-300">
-            EIN {db.org.ein} · demo instance — payments and emails are simulated locally
+            EIN {db.org.ein} · self-hosted with Volunteertrac · one container, no cloud
           </p>
         </div>
       </footer>
 
       <AuthModal tab={tab} setTab={setTab} pending={pending} onClose={() => { setTab(null); setPending(null); }} afterLogin={afterLogin}
-        attemptLogin={attemptLogin} createAccount={createAccount} resetPassword={resetPassword} login={login} db={db} />
+        attemptLogin={attemptLogin} createAccount={createAccount} resetPassword={resetPassword} db={db} />
     </div>
   );
 }
@@ -389,7 +390,7 @@ function BandStat({ v, s, l }: { v: string; s?: string; l: string }) {
 /* ================= auth modal ================= */
 
 function AuthModal({
-  tab, setTab, pending, onClose, afterLogin, attemptLogin, createAccount, resetPassword, login, db,
+  tab, setTab, pending, onClose, afterLogin, attemptLogin, createAccount, resetPassword, db,
 }: {
   tab: Tab | null;
   setTab: (t: Tab | null) => void;
@@ -399,11 +400,22 @@ function AuthModal({
   attemptLogin: (e: string, p: string) => { member?: Member; error?: string };
   createAccount: (d: { firstName: string; lastName: string; email: string; password: string }) => { member?: Member; error?: string };
   resetPassword: (e: string) => boolean;
-  login: (id: string) => void;
   db: ReturnType<typeof useStore>["db"];
 }) {
-  const [email, setEmail] = useState("");
-  const [pw, setPw] = useState("");
+  // First run in this browser: prefill the admin credentials provisioned by
+  // docker-compose (ADMIN_EMAIL / ADMIN_PASSWORD) so the workspace is reachable.
+  const firstRunRef = useRef<boolean | null>(null);
+  if (firstRunRef.current === null) {
+    try {
+      firstRunRef.current = !localStorage.getItem("vt:run");
+      if (firstRunRef.current) localStorage.setItem("vt:run", "1");
+    } catch {
+      firstRunRef.current = false;
+    }
+  }
+  const firstRun = firstRunRef.current;
+  const [email, setEmail] = useState(() => (firstRun ? appConfig.admin.email : ""));
+  const [pw, setPw] = useState(() => (firstRun ? appConfig.admin.password : ""));
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
   const [err, setErr] = useState("");
@@ -429,15 +441,9 @@ function AuthModal({
   const submitReset = (e: FormEvent) => {
     e.preventDefault();
     if (!resetPassword(email)) return setErr("No account found with that email.");
-    setNote("Reset link sent — check your inbox (simulated).");
+    setNote("Reset link sent — check your inbox.");
     setTab("signin");
   };
-
-  const demos = [
-    { id: "m-dana", l: "Dana · admin" },
-    { id: "m-marcus", l: "Marcus · volunteer" },
-    { id: "m-grace", l: "Grace · newest member" },
-  ];
 
   return (
     <Modal
@@ -479,20 +485,16 @@ function AuthModal({
           </Field>
           {err && <p className="text-[12.5px] font-semibold text-clay bg-clay/8 border border-clay/25 rounded-lg px-3 py-2">{err}</p>}
           <Btn size="lg" className="w-full" type="submit">Sign in</Btn>
-          <div className="pt-1">
-            <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-faint mb-2">Demo accounts — one click, any password works above</p>
-            <div className="flex flex-wrap gap-1.5">
-              {demos.map((d) => (
-                <button key={d.id} type="button"
-                  onClick={() => { const m = db.members.find((x) => x.id === d.id); login(d.id); if (m) afterLogin(m); }}
-                  className="h-8 px-3 rounded-full border border-linedark bg-white/60 text-[12px] font-semibold text-soft hover:border-pine-600 hover:text-pine-800 transition cursor-pointer"
-                >
-                  {d.l}
-                </button>
-              ))}
+          {firstRun && (
+            <div className="pt-1">
+              <div className="rounded-[10px] border px-3.5 py-3" style={{ borderColor: "color-mix(in srgb, var(--acc) 38%, white)", background: "color-mix(in srgb, var(--acc) 10%, white)" }}>
+                <p className="text-[12.5px] font-bold" style={{ color: "var(--acc-deep)" }}>First run — admin credentials prefilled</p>
+                <p className="text-[11.5px] text-soft mt-1">
+                  They come from <span className="font-mono">ADMIN_EMAIL</span> / <span className="font-mono">ADMIN_PASSWORD</span> in your <span className="font-mono">docker-compose.yml</span>. Change the password after signing in.
+                </p>
+              </div>
             </div>
-            <p className="font-mono text-[10.5px] text-faint mt-2">e.g. dana@riverbend.org · demo1234</p>
-          </div>
+          )}
         </form>
       )}
 

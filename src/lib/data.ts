@@ -1,3 +1,5 @@
+import { appConfig } from "./config";
+
 // ---------- domain types ----------
 export type Role = "admin" | "member";
 
@@ -80,6 +82,15 @@ export interface OrgSettings {
   tiers: Tier[];
   valuePerHour: number;
   payments: { enabled: boolean; accountLabel: string };
+  smtp: { enabled: boolean; host: string; port: number; user: string; from: string };
+}
+
+export interface EmailMsg {
+  id: string;
+  to: string;
+  subject: string;
+  at: string;
+  status: "delivered" | "queued";
 }
 
 export interface DB {
@@ -90,11 +101,12 @@ export interface DB {
   events: EventItem[];
   attendance: Attendance[];
   activity: Activity[];
+  emails: EmailMsg[];
   session: string | null;
 }
 
 // ---------- constants ----------
-export const SEED_V = 5;
+export const SEED_V = 6;
 export const GROUPS = ["Trail Crew", "Food Pantry", "Youth Mentors", "Events Team"];
 export const ACCENTS = [
   { name: "Marigold", hex: "#E8A61A" },
@@ -266,16 +278,22 @@ export function seed(): DB {
   const now = new Date();
   const M = (
     id: string, firstName: string, lastName: string, email: string, phone: string, title: string,
-    role: Role, groups: string[], active: boolean, joinedDays: number, color: string, waiver: boolean
+    role: Role, groups: string[], active: boolean, joinedDays: number, color: string, waiver: boolean,
+    password = "riverbend!"
   ): Member => ({
     id, firstName, lastName, email, phone, title, role, groups, active,
     joinedAt: iso(at(-joinedDays, 10)), color,
     waiverSignedAt: waiver ? iso(at(-joinedDays + 2, 11)) : null,
-    password: "demo1234",
+    password,
   });
 
+  // Admin account is provisioned from the container environment
+  // (ADMIN_NAME / ADMIN_EMAIL / ADMIN_PASSWORD in docker-compose.yml).
+  const [adminFirst, ...adminRest] = appConfig.admin.name.trim().split(/\s+/);
+  const adminLast = adminRest.join(" ") || "Admin";
+
   const members: Member[] = [
-    M("m-dana", "Dana", "Whitfield", "dana@riverbend.org", "(555) 014-2201", "Program Director", "admin", ["Events Team"], true, 420, AVATAR_COLORS[0], true),
+    M("m-admin", adminFirst, adminLast, appConfig.admin.email, "(555) 014-2201", "Program Director", "admin", ["Events Team"], true, 420, AVATAR_COLORS[0], true, appConfig.admin.password),
     M("m-marcus", "Marcus", "Bell", "marcus.bell@gmail.com", "(555) 093-8817", "Trail Lead", "member", ["Trail Crew"], true, 310, AVATAR_COLORS[1], true),
     M("m-priya", "Priya", "Raman", "priya.raman@outlook.com", "(555) 042-1190", "Pantry Captain", "member", ["Food Pantry"], true, 280, AVATAR_COLORS[2], true),
     M("m-jordan", "Jordan", "Okafor", "jordan.okafor@gmail.com", "(555) 077-3342", "Mentor", "member", ["Youth Mentors"], true, 190, AVATAR_COLORS[3], true),
@@ -381,7 +399,7 @@ export function seed(): DB {
   ];
 
   const org: OrgSettings = {
-    name: "Riverbend Community Alliance",
+    name: appConfig.orgName || "Riverbend Community Alliance",
     tagline: "Neighbors showing up for the river, the pantry, and each other.",
     mission: "Riverbend Community Alliance mobilizes volunteers across Marion County to restore public lands, fight food insecurity, and mentor the next generation — one shift at a time.",
     email: "hello@riverbend.org",
@@ -404,7 +422,22 @@ export function seed(): DB {
     ],
     valuePerHour: 34.95,
     payments: { enabled: true, accountLabel: "Visa ending 4421" },
+    smtp: {
+      enabled: appConfig.smtp.host.length > 0,
+      host: appConfig.smtp.host,
+      port: Number(appConfig.smtp.port) || 587,
+      user: appConfig.smtp.user,
+      from: appConfig.smtp.from || appConfig.admin.email,
+    },
   };
+  if (appConfig.smtp.from) org.email = appConfig.smtp.from;
 
-  return { v: SEED_V, seededAt: iso(now), org, members, events, attendance, activity, session: null };
+  const emails: EmailMsg[] = [
+    { id: uid(), to: "grace.lin@gmail.com", subject: "Confirmed: Summer Fundraiser Setup", at: t(95), status: org.smtp.enabled ? "delivered" : "queued" },
+    { id: uid(), to: "marcus.bell@gmail.com", subject: `Receipt ${rcptFor("e-wfa", "m-marcus")} — Wilderness First Aid Certification`, at: t(60 * 30), status: org.smtp.enabled ? "delivered" : "queued" },
+    { id: uid(), to: "aisha.t@yahoo.com", subject: "Welcome to the team — set up your volunteer profile", at: t(60 * 24 * 74), status: org.smtp.enabled ? "delivered" : "queued" },
+    { id: uid(), to: appConfig.admin.email, subject: "Your Volunteertrac workspace is ready", at: t(60 * 24 * 90), status: org.smtp.enabled ? "delivered" : "queued" },
+  ];
+
+  return { v: SEED_V, seededAt: iso(now), org, members, events, attendance, activity, emails, session: null };
 }

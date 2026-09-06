@@ -1,4 +1,5 @@
 PORT ?= 8080
+BRANCH ?= feat/payments-and-provisioning
 
 .PHONY: up dev down logs build publish setup help
 
@@ -25,6 +26,9 @@ setup: ## chmod scripts & install node deps
 publish: ## Push image to ghcr.io/oak8989/volunteertrac
 	@docker build -t ghcr.io/oak8989/volunteertrac:latest .
 	@docker push ghcr.io/oak8989/volunteertrac:latest
+
+branch: ## Push a new branch for a PR (BRANCH=feat/x make branch)
+	@./publish.sh $(BRANCH)
 
 help: ## Show all targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  make \033[1m%-8s\033[0m %s\n", $$1, $$2}'

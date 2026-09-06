@@ -10,7 +10,7 @@ cd volunteertrac
 ./up.sh                     # checks Docker, builds, waits, prints the URL
 ```
 
-Open **http://localhost:8080** and pick a demo identity on the sign-in screen (one admin, several volunteers). That's the entire setup — no database, no secrets, no `.env` required.
+Open **http://localhost:8080** and sign in with the admin credentials from `docker-compose.yml` (`admin@volunteertrac.local` / `changeme` by default — they're prefilled on first run). That's the entire setup — no database, no secrets, no `.env` required.
 
 Prefer explicit commands?
 
@@ -29,7 +29,16 @@ make logs      # follow nginx logs
 make down      # stop & remove
 ```
 
-Optional config lives in `.env.example` (just `PORT` and `TZ` — both have sensible defaults). Data persists in the browser via localStorage; reset it anytime from **Admin → Settings → Demo data**, and browse copy-pasteable deployment recipes in **Admin → Deploy**.
+Optional config lives in `.env.example`. Everything has a working default; the interesting knobs:
+
+| Variable | What it does |
+| --- | --- |
+| `PORT` / `TZ` | Host port and container timezone |
+| `ADMIN_NAME` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` | The admin user provisioned at first boot — used to sign in, prefilled on the landing page |
+| `ORG_NAME` | White-labels the organization name across the app |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_FROM` | Email server; leave `SMTP_HOST` empty to queue mail in the outbox |
+
+Provisioning happens at container boot (`docker/entrypoint.sh` renders `ADMIN_*` / `SMTP_*` into the SPA's runtime config), so the same image serves any org. Data persists in the browser and round-trips through validated JSON backups (**Admin → Deploy → Persistent storage**); copy-pasteable deployment recipes live in **Admin → Deploy**.
 
 ## What's inside
 
@@ -63,7 +72,7 @@ Medals (Seedling → Trailblazer → Beacon → Lighthouse) unlock automatically
 
 - **Multi-stage Dockerfile** — dependencies and build artifacts never ship in the runtime image (~50 MB final).
 - **Healthcheck** baked into both the image and `docker-compose.yml`.
-- **State** — this demo persists to `localStorage`, so a single container is fully self-contained. Swap `src/lib/store.tsx` for a REST/Postgres backend without touching the views.
+- **State** — the ledger persists to `localStorage` and round-trips through JSON backups, so a single container is fully self-contained. Swap `src/lib/store.tsx` for a REST/Postgres backend without touching the views.
 
 ## Publish to GitHub (oak8989)
 
@@ -71,8 +80,13 @@ Medals (Seedling → Trailblazer → Beacon → Lighthouse) unlock automatically
 # 1. Create the repo on GitHub (either)
 gh repo create volunteertrac --public --source=. --remote=origin --push
 # …or create an empty repo at https://github.com/new, then:
-./publish.sh
+./publish.sh              # publish main
+./publish.sh feat/setup   # publish a NEW branch and print the PR link
 ```
+
+Or via Make: `BRANCH=feat/setup make branch` pushes the branch and prints
+`https://github.com/oak8989/volunteertrac/compare/main...feat/setup?expand=1`
+so you can open the pull request in one click.
 
 The repo lands at **https://github.com/oak8989/volunteertrac** and the included
 workflow (`.github/workflows/docker-publish.yml`) automatically builds and pushes
