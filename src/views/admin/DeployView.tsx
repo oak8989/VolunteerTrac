@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "../../lib/store";
-import { downloadText } from "../../lib/data";
-import { Btn, card, Chip, LiveDot, PageHead } from "../../components/ui";
-import { IcCheck, IcCopy, IcDown, IcRocket, IcTerminal } from "../../components/icons";
+import { downloadText, monthSeries, totalHours } from "../../lib/data";
+import { cache, cached } from "../../lib/cache";
+import { Bar, Btn, card, Chip, LiveDot, PageHead } from "../../components/ui";
+import { IcCheck, IcCopy, IcDown, IcRocket, IcShield, IcTerminal } from "../../components/icons";
 
 const VERSION = "v1.0.0";
 const REPO = "https://github.com/oak8989/volunteertrac";
@@ -28,6 +29,17 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+
+  cache:
+    image: redis:7-alpine
+    container_name: volunteertrac-cache
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
 `;
 
 async function copyText(t: string): Promise<boolean> {
@@ -132,9 +144,56 @@ const STEPS = [
   { t: "Sign in", d: "Open http://localhost:8080 and pick any demo identity." },
 ];
 
+const STORAGE_KEY = "volunteertrac:db"; // kept in sync with src/lib/store.tsx
+
+const SECURITY = [
+  { t: "Non-root runtime", d: "nginx serves as an unprivileged user — no root shell in the image" },
+  { t: "Security headers", d: "CSP, X-Frame-Options DENY, nosniff and strict referrer on every response" },
+  { t: "Multi-stage build", d: "toolchain and node_modules never reach the runtime image" },
+  { t: "No baked-in secrets", d: "configuration flows through env vars only" },
+  { t: "Healthchecked", d: "image and compose level; orchestration restarts on failure" },
+];
+
 export default function DeployView() {
-  const { db } = useStore();
+  const { db, toast } = useStore();
   const [online, setOnline] = useState(() => navigator.onLine);
+  const [, setTick] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Warm the TTL cache with hot aggregates every few seconds — the same
+  // keys the dashboard and impact views read. Watch the hit-rate climb.
+  useEffect(() => {
+    const warm = () => {
+      cached(`impact:hours:${db.attendance.length}`, () => totalHours(db));
+      cached(`impact:series:${db.attendance.length}`, () => monthSeries(db, 8));
+      setTick((x) => x + 1);
+    };
+    warm();
+    const i = window.setInterval(warm, 2500);
+    return () => window.clearInterval(i);
+  }, [db]);
+  const cstats = cache.stats();
+
+  let storedBytes = 0;
+  try { storedBytes = localStorage.getItem(STORAGE_KEY)?.length || 0; } catch { storedBytes = 0; }
+  const uploads = (db.org.logoDataUrl ? 1 : 0);
+
+  const onImport = (f: File | undefined) => {
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const data = JSON.parse(String(r.result));
+        if (!data?.org || !Array.isArray(data.members) || !Array.isArray(data.events) || !Array.isArray(data.attendance)) throw new Error("shape");
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        toast("ok", "Backup restored", "Reloading with the imported dataset…");
+        window.setTimeout(() => window.location.reload(), 900);
+      } catch {
+        toast("warn", "Not a valid backup", "Expected a volunteertrac-data.json export");
+      }
+    };
+    r.readAsText(f);
+  };
   useEffect(() => {
     const on = () => setOnline(true);
     const off = () => setOnline(false);
@@ -150,7 +209,7 @@ export default function DeployView() {
 
   return (
     <>
-      <PageHead eyebrow="Ship it in one command" title="Setup & deploy" sub="Volunteertrac is a single self-contained container — no database, no secrets, no external services. Everything below is copy-paste ready.">
+      <PageHead eyebrow="Ship it in one command" title="Setup & deploy" sub="Volunteertrac is a single self-contained container — no database, no secrets, nothing required beyond Docker (Redis ships as an optional scale-out tier). Everything below is copy-paste ready.">
         <a href={REPO} target="_blank" rel="noreferrer" className="no-underline">
           <Btn variant="line"><IcRocket size={15} /> github.com/oak8989</Btn>
         </a>
@@ -240,7 +299,92 @@ export default function DeployView() {
             <p className="text-[11.5px] text-faint mt-3">Copy <span className="font-mono">.env.example</span> → <span className="font-mono">.env</span> and compose picks it up automatically.</p>
           </section>
 
-          <section className="anim-rise" style={{ animationDelay: "340ms" }}>
+          {/* cache layer */}
+          <section className={`${card} p-5 anim-rise`} style={{ animationDelay: "280ms" }}>
+            <div className="flex items-center justify-between mb-3.5">
+              <h2 className="font-display font-bold text-[16px]">Cache layer</h2>
+              <div className="flex items-center gap-2">
+                <Chip tone="live"><LiveDot /> live</Chip>
+                <Btn size="sm" variant="ghost" onClick={() => { cache.clear(); setTick((x) => x + 1); toast("info", "Cache flushed", "Next read recomputes from the ledger"); }}>
+                  Flush
+                </Btn>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { l: "hits", v: cstats.hits },
+                { l: "misses", v: cstats.misses },
+                { l: "evicted", v: cstats.evictions },
+                { l: "entries", v: cstats.entries },
+              ].map((s) => (
+                <div key={s.l} className="bg-paper/80 border border-line rounded-[9px] px-2.5 py-2 text-center">
+                  <p className="font-mono font-bold text-[17px] tnum leading-none">{s.v}</p>
+                  <p className="text-[9.5px] font-bold uppercase tracking-[0.1em] text-faint mt-1">{s.l}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3.5">
+              <div className="flex justify-between text-[11px] font-mono text-soft mb-1.5">
+                <span>hit rate</span>
+                <span className="tnum font-bold text-ink">{cstats.hitRate}%</span>
+              </div>
+              <Bar value={cstats.hitRate / 100} />
+            </div>
+            <p className="text-[11.5px] text-faint mt-3">
+              TTL {cstats.ttlS}s · LRU 128 entries, in-browser. Compose runs <span className="font-mono">redis:7-alpine</span> with <span className="font-mono">allkeys-lru</span> as the shared tier for an API backend.
+            </p>
+          </section>
+
+          {/* security posture */}
+          <section className={`${card} p-5 anim-rise`} style={{ animationDelay: "320ms" }}>
+            <h2 className="font-display font-bold text-[16px] mb-4 flex items-center gap-2">
+              <IcShield size={17} className="text-pine-700" /> Security posture
+            </h2>
+            <div className="space-y-3">
+              {SECURITY.map((s, i) => (
+                <div key={s.t} className="flex gap-2.5 anim-rise" style={{ animationDelay: `${360 + i * 60}ms` }}>
+                  <span className="w-[22px] h-[22px] shrink-0 rounded-full flex items-center justify-center mt-0.5" style={{ background: "color-mix(in srgb, var(--acc) 16%, white)", color: "var(--acc-deep)" }}>
+                    <IcCheck size={12} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-bold leading-tight">{s.t}</p>
+                    <p className="text-[11.5px] text-soft mt-0.5">{s.d}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* persistent storage */}
+          <section className={`${card} p-5 anim-rise`} style={{ animationDelay: "360ms" }}>
+            <h2 className="font-display font-bold text-[16px] mb-3.5">Persistent storage</h2>
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-[11.5px] font-bold bg-pine-100 text-pine-800 rounded-md px-2 py-0.5">{STORAGE_KEY}</span>
+                <span className="text-[12px] text-soft flex-1">browser-persistent ledger</span>
+                <span className="font-mono text-[12px] tnum font-semibold">{Math.max(1, Math.round(storedBytes / 1024))} KB</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-[11.5px] font-bold bg-pine-100 text-pine-800 rounded-md px-2 py-0.5">uploads</span>
+                <span className="text-[12px] text-soft flex-1">logo & brand assets, stored inline</span>
+                <span className="font-mono text-[12px] tnum font-semibold">{uploads} file{uploads === 1 ? "" : "s"}</span>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <Btn size="sm" variant="soft" onClick={() => { downloadText(`volunteertrac-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(db, null, 2)); toast("ok", "Backup exported", "Keep it somewhere safe — restores in one click"); }}>
+                <IcDown size={13} /> Export backup
+              </Btn>
+              <Btn size="sm" variant="line" onClick={() => fileRef.current?.click()}>
+                <IcCopy size={13} /> Import backup
+              </Btn>
+              <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => { onImport(e.target.files?.[0]); e.target.value = ""; }} />
+            </div>
+            <p className="text-[11.5px] text-faint mt-3">
+              The container is stateless by design — data lives with the browser, survives restarts, and round-trips through validated JSON backups.
+            </p>
+          </section>
+
+          <section className="anim-rise" style={{ animationDelay: "400ms" }}>
             <div className="flex items-center justify-between mb-1.5 px-0.5">
               <p className="text-[13px] font-bold">The whole orchestration file</p>
             </div>
