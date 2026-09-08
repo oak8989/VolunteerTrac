@@ -266,8 +266,13 @@ export function downloadText(name: string, text: string, mime = "text/csv") {
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 800);
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
 }
 
 export const fullName = (m: Member) => `${m.firstName} ${m.lastName}`;

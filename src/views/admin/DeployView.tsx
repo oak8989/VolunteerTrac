@@ -26,7 +26,7 @@ services:
       # admin user provisioned at first boot
       - ADMIN_NAME=\${ADMIN_NAME:-Alex Morgan}
       - ADMIN_EMAIL=\${ADMIN_EMAIL:-admin@volunteertrac.local}
-      - ADMIN_PASSWORD=\${ADMIN_PASSWORD:-changeme}
+      - ADMIN_PASSWORD=\${ADMIN_PASSWORD:-CHANGE_ME_IN_PRODUCTION}
       # white-label org name (empty keeps the built-in default)
       - ORG_NAME=\${ORG_NAME:-}
       # email server (empty SMTP_HOST queues mail in the outbox)

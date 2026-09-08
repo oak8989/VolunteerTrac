@@ -41,7 +41,7 @@ export default function InsightsView() {
           { l: "Total hours", v: `${hoursAnim.toFixed(0)}h`, big: true },
           { l: "Est. community value", v: `$${Math.round(th * db.org.valuePerHour).toLocaleString()}` },
           { l: "Events held", v: String(held.length) },
-          { l: "Avg / volunteer", v: fmtH(Math.round(avg * 10) / 10) },
+          { l: "Compensation / volunteer", v: fmtH(Math.round(avg * 10) / 10) },
           { l: "Show-up rate", v: `${rate}%` },
           { l: "Fees collected", v: fmtMoney(totalRevenue(db)) },
         ].map((s, i) => (

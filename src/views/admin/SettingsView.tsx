@@ -214,19 +214,57 @@ export default function SettingsView() {
 
 function RelayStatus({ enabled, host }: { enabled: boolean; host: string }) {
   const [state, setState] = useState<"checking" | "online" | "offline" | "notset">("checking");
+  const [refreshKey, setRefreshKey] = useState(0);
+
   useEffect(() => {
-    if (!enabled || !host) return setState("notset");
-    let alive = true;
+    if (!enabled || !host) {
+      setState("notset");
+      return;
+    }
+    
+    let cancelled = false;
     const ctrl = new AbortController();
-    const t = window.setTimeout(() => ctrl.abort(), 1800);
-    fetch("/api/mail/health", { signal: ctrl.signal })
-      .then((r) => { if (alive) setState(r.ok ? "online" : "offline"); })
-      .catch(() => { if (alive) setState("offline"); })
-      .finally(() => window.clearTimeout(t));
-    return () => { alive = false; ctrl.abort(); window.clearTimeout(t); };
-  }, [enabled, host]);
+    
+    // Hard timeout: if fetch doesn't complete in 3s, mark offline
+    const timeout = setTimeout(() => {
+      if (!cancelled) {
+        ctrl.abort();
+        setState("offline");
+      }
+    }, 3000);
+
+    fetch("/api/mail/health", { 
+      signal: ctrl.signal,
+      method: "GET",
+      headers: { "Accept": "application/json" }
+    })
+      .then((r) => {
+        if (!cancelled) {
+          clearTimeout(timeout);
+          setState(r.ok ? "online" : "offline");
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          clearTimeout(timeout);
+          // Distinguish between abort (timeout) and other errors
+          if (err.name === "AbortError") {
+            setState("offline");
+          } else {
+            setState("offline");
+          }
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+      clearTimeout(timeout);
+    };
+  }, [enabled, host, refreshKey]);
 
   if (state === "notset") return null;
+  
   return (
     <div className={`flex items-center gap-2 rounded-[9px] border px-3 py-2 text-[11.5px] font-semibold ${
       state === "online" ? "border-pine-200 bg-pine-100/70 text-pine-800" :
@@ -234,9 +272,18 @@ function RelayStatus({ enabled, host }: { enabled: boolean; host: string }) {
       "border-line bg-paper/70 text-faint"
     }`}>
       <span className={`w-1.5 h-1.5 rounded-full ${state === "online" ? "bg-pine-600 dot-live" : state === "offline" ? "bg-clay" : "bg-faint"}`} />
-      {state === "checking" && "Pinging the mailer relay…"}
-      {state === "online" && "Mailer relay is online — messages deliver for real"}
-      {state === "offline" && "Mailer relay unreachable — run docker compose up so the mailer sidecar answers at /api/mail"}
+      <span className="flex-1">
+        {state === "checking" && "Pinging the mailer relay…"}
+        {state === "online" && "Mailer relay is online — messages deliver for real"}
+        {state === "offline" && "Mailer relay unreachable — run docker compose up so the mailer sidecar answers at /api/mail"}
+      </span>
+      <button
+        onClick={() => setRefreshKey(k => k + 1)}
+        className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded border border-current opacity-70 hover:opacity-100 transition cursor-pointer"
+        title="Check again"
+      >
+        ↻
+      </button>
     </div>
   );
 }
