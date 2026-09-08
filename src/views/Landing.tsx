@@ -402,8 +402,8 @@ function AuthModal({
   resetPassword: (e: string) => boolean;
   db: ReturnType<typeof useStore>["db"];
 }) {
-  // First run in this browser: prefill the admin credentials provisioned by
-  // docker-compose (ADMIN_EMAIL / ADMIN_PASSWORD) so the workspace is reachable.
+  // First run in this browser: show a hint about the provisioned credentials
+  // (but don't prefill them — the admin must type them to sign in).
   const firstRunRef = useRef<boolean | null>(null);
   if (firstRunRef.current === null) {
     try {
@@ -414,8 +414,8 @@ function AuthModal({
     }
   }
   const firstRun = firstRunRef.current;
-  const [email, setEmail] = useState(() => (firstRun ? appConfig.admin.email : ""));
-  const [pw, setPw] = useState(() => (firstRun ? appConfig.admin.password : ""));
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
   const [err, setErr] = useState("");
@@ -488,10 +488,15 @@ function AuthModal({
           {firstRun && (
             <div className="pt-1">
               <div className="rounded-[10px] border px-3.5 py-3" style={{ borderColor: "color-mix(in srgb, var(--acc) 38%, white)", background: "color-mix(in srgb, var(--acc) 10%, white)" }}>
-                <p className="text-[12.5px] font-bold" style={{ color: "var(--acc-deep)" }}>First run — admin credentials prefilled</p>
+                <p className="text-[12.5px] font-bold" style={{ color: "var(--acc-deep)" }}>First run — admin credentials</p>
                 <p className="text-[11.5px] text-soft mt-1">
-                  They come from <span className="font-mono">ADMIN_EMAIL</span> / <span className="font-mono">ADMIN_PASSWORD</span> in your <span className="font-mono">docker-compose.yml</span>. Change the password after signing in.
+                  Sign in with the credentials from your <span className="font-mono">docker-compose.yml</span>:
                 </p>
+                <div className="mt-2 space-y-1 font-mono text-[11px]">
+                  <div><span className="text-faint">Email:</span> <span className="font-semibold">{appConfig.admin.email}</span></div>
+                  <div><span className="text-faint">Password:</span> <span className="font-semibold">{appConfig.admin.password}</span></div>
+                </div>
+                <p className="text-[10.5px] text-faint mt-2">Change the password after signing in.</p>
               </div>
             </div>
           )}
